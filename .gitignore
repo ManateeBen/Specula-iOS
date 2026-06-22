@@ -1,0 +1,9 @@
+node_modules/
+dist/
+ios/App/Pods/
+ios/App/build/
+ios/App/DerivedData/
+.DS_Store
+*.xcuserstate
+.env
+.env.*

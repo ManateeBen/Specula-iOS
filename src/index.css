@@ -1,0 +1,213 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    @apply h-full;
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    @apply h-full bg-gray-50 text-gray-900 dark:bg-gray-950 dark:text-gray-100;
+    overscroll-behavior: none;
+  }
+  #root {
+    @apply h-full;
+  }
+}
+
+@layer utilities {
+  .safe-top {
+    padding-top: env(safe-area-inset-top);
+  }
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg bg-specula-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-specula-700 active:bg-specula-800 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-secondary {
+    @apply inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50 active:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700;
+  }
+  .card {
+    @apply rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900;
+  }
+  .input {
+    @apply w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-specula-500 focus:ring-2 focus:ring-specula-500/20 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100;
+  }
+}
+
+/* EPUB reader styles */
+.epub-container {
+  @apply h-full overflow-auto bg-amber-50 dark:bg-gray-900;
+}
+.epub-container iframe {
+  @apply border-0;
+}
+
+/* Rendered EPUB chapter content */
+.epub-content {
+  @apply text-[15px] leading-7 text-gray-900 dark:text-gray-100;
+}
+.epub-content img,
+.epub-content svg {
+  max-width: 100%;
+  height: auto;
+}
+.epub-content--images img {
+  cursor: zoom-in;
+  border-radius: 0.25rem;
+  transition: outline-color 0.15s;
+  outline: 2px solid transparent;
+}
+.epub-content--images img:hover {
+  outline-color: theme('colors.specula.400');
+}
+.epub-content p {
+  margin: 0.8em 0;
+}
+.epub-content h1,
+.epub-content h2,
+.epub-content h3,
+.epub-content h4 {
+  @apply font-semibold;
+  margin: 1.2em 0 0.6em;
+  line-height: 1.35;
+}
+.epub-content h1 { @apply text-2xl; }
+.epub-content h2 { @apply text-xl; }
+.epub-content h3 { @apply text-lg; }
+.epub-content ul,
+.epub-content ol {
+  margin: 0.8em 0;
+  padding-left: 1.6em;
+}
+.epub-content li { margin: 0.3em 0; }
+.epub-content blockquote {
+  @apply border-l-4 border-gray-300 pl-4 italic text-gray-600 dark:border-gray-600 dark:text-gray-400;
+  margin: 0.8em 0;
+}
+.epub-content pre {
+  @apply rounded-lg bg-gray-100 dark:bg-gray-800;
+  overflow-x: auto;
+  padding: 0.85em 1em;
+  margin: 0.9em 0;
+}
+.epub-content code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.92em;
+}
+.epub-content a {
+  @apply text-specula-600 dark:text-specula-400;
+}
+
+/* Quiz weak-point highlight marks in EPUB — numbered + color-coded */
+.epub-content mark.quiz-highlight {
+  border-radius: 2px;
+  padding: 1px 2px;
+  color: inherit;
+  cursor: help;
+  position: relative;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+.epub-content mark.quiz-highlight[data-wp-index]::before {
+  content: attr(data-wp-index);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.15em;
+  height: 1.15em;
+  margin-right: 2px;
+  padding: 0 2px;
+  font-size: 0.68em;
+  font-weight: 700;
+  line-height: 1;
+  border-radius: 9999px;
+  color: #fff;
+  vertical-align: text-top;
+  position: relative;
+  top: -0.05em;
+}
+.epub-content mark.quiz-wp-1 { background: linear-gradient(120deg, #fcd34d 0%, #f59e0b 100%); }
+.epub-content mark.quiz-wp-1::before { background: #b45309; }
+.epub-content mark.quiz-wp-2 { background: linear-gradient(120deg, #fda4af 0%, #f43f5e 100%); }
+.epub-content mark.quiz-wp-2::before { background: #be123c; }
+.epub-content mark.quiz-wp-3 { background: linear-gradient(120deg, #93c5fd 0%, #3b82f6 100%); }
+.epub-content mark.quiz-wp-3::before { background: #1d4ed8; }
+.epub-content mark.quiz-wp-4 { background: linear-gradient(120deg, #6ee7b7 0%, #10b981 100%); }
+.epub-content mark.quiz-wp-4::before { background: #047857; }
+.epub-content mark.quiz-wp-5 { background: linear-gradient(120deg, #c4b5fd 0%, #8b5cf6 100%); }
+.epub-content mark.quiz-wp-5::before { background: #6d28d9; }
+.epub-content mark.quiz-wp-6 { background: linear-gradient(120deg, #67e8f9 0%, #06b6d4 100%); }
+.epub-content mark.quiz-wp-6::before { background: #0e7490; }
+.epub-content mark.quiz-wp-7 { background: linear-gradient(120deg, #f0abfc 0%, #d946ef 100%); }
+.epub-content mark.quiz-wp-7::before { background: #a21caf; }
+.epub-content mark.quiz-wp-8 { background: linear-gradient(120deg, #bef264 0%, #84cc16 100%); }
+.epub-content mark.quiz-wp-8::before { background: #4d7c0f; }
+.epub-content mark.quiz-highlight:not([class*="quiz-wp-"]) {
+  background: linear-gradient(120deg, #fcd34d 0%, #f59e0b 100%);
+}
+.epub-content mark.quiz-highlight:not([class*="quiz-wp-"])::before {
+  background: #b45309;
+}
+.epub-content mark.quiz-highlight::after {
+  content: attr(data-wp-index) " · " attr(data-topic);
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1f2937;
+  color: #f9fafb;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+  z-index: 10;
+}
+.epub-content mark.quiz-highlight:hover::after {
+  opacity: 1;
+}
+
+/* User manual highlight */
+.epub-content mark.user-highlight {
+  background: #fde68a;
+  border-radius: 2px;
+  padding: 1px 1px;
+  color: inherit;
+}
+.dark .epub-content mark.user-highlight {
+  background: #a16207;
+  color: #fef9c3;
+}
+
+/* Deep-link target: briefly flash the paragraph we scrolled to */
+.deeplink-flash {
+  animation: deeplink-flash 2.4s ease-out;
+  border-radius: 3px;
+}
+@keyframes deeplink-flash {
+  0%,
+  40% {
+    background-color: rgba(251, 191, 36, 0.5);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+/* PDF viewer */
+.pdf-viewer-container {
+  @apply h-full;
+}
+
+::selection {
+  @apply bg-yellow-200 dark:bg-yellow-700;
+}
