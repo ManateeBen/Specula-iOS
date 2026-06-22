@@ -402,12 +402,13 @@ export default function EpubReader({
     }
     const range = sel.getRangeAt(0)
     const rect = range.getBoundingClientRect()
+    const scrollTop = scrollRef.current?.scrollTop || 0
     const contextEl = range.commonAncestorContainer.parentElement
     const context = contextEl?.textContent?.slice(0, 500) || ''
     // Stash the live range/info so the toolbar actions can use them after click.
     selRangeRef.current = range.cloneRange()
     selInfoRef.current = { text, context, rect }
-    setSelToolbar({ top: rect.top - 44, left: rect.left })
+    setSelToolbar({ top: rect.top - 44 + scrollTop, left: rect.left })
   }
 
   const handleManualHighlight = async () => {
@@ -460,7 +461,7 @@ export default function EpubReader({
 
   return (
     <div className="flex h-full flex-col">
-      <div ref={scrollRef} onMouseUp={handleMouseUp} onScroll={handleScroll} className="epub-container flex-1 overflow-y-auto">
+      <div ref={scrollRef} onMouseUp={handleMouseUp} onTouchEnd={handleMouseUp} onScroll={handleScroll} className="epub-container flex-1 overflow-y-auto">
         {loading ? (
           <div className="p-10 text-center text-sm text-gray-500">加载章节中...</div>
         ) : (
@@ -477,6 +478,7 @@ export default function EpubReader({
           style={{ position: 'fixed', top: selToolbar.top, left: selToolbar.left, zIndex: 1000 }}
           className="flex overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800"
           onMouseDown={(e) => e.preventDefault()}
+          onTouchStart={(e) => e.preventDefault()}
         >
           <button
             onClick={handleManualHighlight}

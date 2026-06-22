@@ -46,7 +46,7 @@ export default function Layout() {
         <Outlet />
       </main>
 
-      <nav className="flex shrink-0 border-t border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900 md:hidden">
+      <nav className="flex shrink-0 border-t border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900 md:hidden" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
         {navItems.map(({ to, label, icon: Icon }) => {
           const active = location.pathname === to
           return (
