@@ -389,27 +389,37 @@ export default function EpubReader({
     if (idx >= 0 && idx < chapters.length - 1) onChapterChange(chapters[idx + 1].id)
   }
 
-  const handleMouseUp = () => {
-    const sel = window.getSelection()
-    if (!sel || sel.isCollapsed) {
-      setSelToolbar(null)
-      return
+  // Listen for text selection changes (works on both desktop mouse and iOS touch).
+  useEffect(() => {
+    const handleSelectionChange = () => {
+      const sel = window.getSelection()
+      if (!sel || sel.isCollapsed) {
+        setSelToolbar(null)
+        return
+      }
+      const text = sel.toString().trim()
+      if (!text) {
+        setSelToolbar(null)
+        return
+      }
+      // Only respond to selections inside our content area
+      const content = contentRef.current
+      if (!content || !content.contains(sel.anchorNode)) {
+        setSelToolbar(null)
+        return
+      }
+      const range = sel.getRangeAt(0)
+      const rect = range.getBoundingClientRect()
+      const scrollTop = scrollRef.current?.scrollTop || 0
+      const contextEl = range.commonAncestorContainer.parentElement
+      const context = contextEl?.textContent?.slice(0, 500) || ''
+      selRangeRef.current = range.cloneRange()
+      selInfoRef.current = { text, context, rect }
+      setSelToolbar({ top: rect.top - 44 + scrollTop, left: rect.left })
     }
-    const text = sel.toString().trim()
-    if (!text) {
-      setSelToolbar(null)
-      return
-    }
-    const range = sel.getRangeAt(0)
-    const rect = range.getBoundingClientRect()
-    const scrollTop = scrollRef.current?.scrollTop || 0
-    const contextEl = range.commonAncestorContainer.parentElement
-    const context = contextEl?.textContent?.slice(0, 500) || ''
-    // Stash the live range/info so the toolbar actions can use them after click.
-    selRangeRef.current = range.cloneRange()
-    selInfoRef.current = { text, context, rect }
-    setSelToolbar({ top: rect.top - 44 + scrollTop, left: rect.left })
-  }
+    document.addEventListener('selectionchange', handleSelectionChange)
+    return () => document.removeEventListener('selectionchange', handleSelectionChange)
+  }, [])
 
   const handleManualHighlight = async () => {
     const info = selInfoRef.current
@@ -461,7 +471,7 @@ export default function EpubReader({
 
   return (
     <div className="flex h-full flex-col">
-      <div ref={scrollRef} onMouseUp={handleMouseUp} onTouchEnd={handleMouseUp} onScroll={handleScroll} className="epub-container flex-1 overflow-y-auto">
+      <div ref={scrollRef} onScroll={handleScroll} className="epub-container flex-1 overflow-y-auto">
         {loading ? (
           <div className="p-10 text-center text-sm text-gray-500">加载章节中...</div>
         ) : (
