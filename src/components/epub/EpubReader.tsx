@@ -306,14 +306,14 @@ export default function EpubReader({
     initialPosition && !Number.isNaN(parseFloat(initialPosition)) ? parseFloat(initialPosition) : null
   )
   const pendingRestoreRef = useRef<number | null>(restorePosRef.current)
-  const selectionFrameRef = useRef<number | null>(null)
+  const selectionSettleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastSelectionKeyRef = useRef('')
   // Debounce timer for persisting the intra-chapter scroll position.
   const scrollSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Floating toolbar shown over a text selection (高亮 / AI 解释).
   const [selToolbar, setSelToolbar] = useState<{ top: number; left: number } | null>(null)
-  const selRangeRef = useRef<Range | null>(null)
+  const toolbarRef = useRef<HTMLDivElement>(null)
   const selInfoRef = useRef<{ text: string; context: string; rect: DOMRect } | null>(null)
 
   // All highlights (user + quiz) for the current chapter that have matchable text.
@@ -467,7 +467,6 @@ export default function EpubReader({
     window.getSelection()?.removeAllRanges()
     setSelToolbar(null)
     lastSelectionKeyRef.current = ''
-    selRangeRef.current = null
     selInfoRef.current = null
   }
   const goPrev = () => {
@@ -479,11 +478,10 @@ export default function EpubReader({
     if (idx >= 0 && idx < chapters.length - 1) onChapterChange(chapters[idx + 1].id)
   }
 
-  // Listen for text selection changes. Keep this intentionally small: the
-  // native selection stays alive, and our toolbar only offers the app actions.
+  // Listen for text selection changes. We wait until selection settles before
+  // showing the toolbar, otherwise iOS handle dragging makes the toolbar jitter.
   useEffect(() => {
     const updateSelectionToolbar = () => {
-      selectionFrameRef.current = null
       const sel = window.getSelection()
       if (!sel || sel.isCollapsed) {
         lastSelectionKeyRef.current = ''
@@ -504,25 +502,26 @@ export default function EpubReader({
       }
       const range = sel.getRangeAt(0)
       const rect = range.getBoundingClientRect()
-      const visibleRect = rect.width || rect.height ? rect : range.getClientRects()[0]
+      const visibleRect =
+        Array.from(range.getClientRects()).find(
+          (r) => r.width > 2 && r.height > 2 && r.bottom > 0 && r.top < window.innerHeight
+        ) || (rect.width || rect.height ? rect : null)
       if (!visibleRect) return
-      const selectionKey = `${text}|${Math.round(visibleRect.left)}|${Math.round(
-        visibleRect.top
-      )}|${Math.round(visibleRect.width)}|${Math.round(visibleRect.height)}`
+      const selectionKey = text
       if (selectionKey === lastSelectionKeyRef.current) return
       lastSelectionKeyRef.current = selectionKey
 
       const toolbarWidth = 164
       const toolbarHeight = 44
+      const minTop = isMobile ? 78 : 8
       const contextEl = range.commonAncestorContainer.parentElement
       const context = contextEl?.textContent?.slice(0, 500) || ''
-      selRangeRef.current = range.cloneRange()
       selInfoRef.current = { text, context, rect: visibleRect }
 
       const top = visibleRect.top - toolbarHeight - 10
       const fallbackTop = visibleRect.bottom + 10
       setSelToolbar({
-        top: top > 8 ? top : Math.min(fallbackTop, window.innerHeight - toolbarHeight - 8),
+        top: top > minTop ? top : Math.min(fallbackTop, window.innerHeight - toolbarHeight - 8),
         left: Math.min(
           Math.max(12, visibleRect.left + visibleRect.width / 2 - toolbarWidth / 2),
           window.innerWidth - toolbarWidth - 12
@@ -531,15 +530,15 @@ export default function EpubReader({
     }
 
     const handleSelectionChange = () => {
-      if (selectionFrameRef.current != null) return
-      selectionFrameRef.current = requestAnimationFrame(updateSelectionToolbar)
+      if (selectionSettleTimerRef.current) clearTimeout(selectionSettleTimerRef.current)
+      selectionSettleTimerRef.current = setTimeout(updateSelectionToolbar, 180)
     }
     document.addEventListener('selectionchange', handleSelectionChange)
     return () => {
       document.removeEventListener('selectionchange', handleSelectionChange)
-      if (selectionFrameRef.current != null) cancelAnimationFrame(selectionFrameRef.current)
+      if (selectionSettleTimerRef.current) clearTimeout(selectionSettleTimerRef.current)
     }
-  }, [])
+  }, [isMobile])
 
   useEffect(() => {
     const preventContentContextMenu = (event: Event) => {
@@ -548,22 +547,9 @@ export default function EpubReader({
         event.preventDefault()
       }
     }
-    const preventNativeSelectionMenu = (event: TouchEvent) => {
-      const content = contentRef.current
-      if (
-        content &&
-        event.target instanceof Node &&
-        content.contains(event.target) &&
-        window.getSelection()?.toString().trim()
-      ) {
-        event.preventDefault()
-      }
-    }
     document.addEventListener('contextmenu', preventContentContextMenu, true)
-    document.addEventListener('touchend', preventNativeSelectionMenu, { capture: true, passive: false })
     return () => {
       document.removeEventListener('contextmenu', preventContentContextMenu, true)
-      document.removeEventListener('touchend', preventNativeSelectionMenu, true)
     }
   }, [])
 
@@ -619,8 +605,16 @@ export default function EpubReader({
     })
   }
 
+  const handleRootClickCapture = (e: React.MouseEvent) => {
+    if (!selToolbar) return
+    const target = e.target as Node
+    if (toolbarRef.current?.contains(target)) return
+    clearSelectionState()
+    e.stopPropagation()
+  }
+
   return (
-    <div className="relative flex h-full flex-col">
+    <div className="relative flex h-full flex-col" onClickCapture={handleRootClickCapture}>
       <div
         ref={scrollRef}
         onScroll={handleScroll}
@@ -640,6 +634,7 @@ export default function EpubReader({
 
       {selToolbar && (
         <div
+          ref={toolbarRef}
           style={{ position: 'fixed', top: selToolbar.top, left: selToolbar.left, zIndex: 1000 }}
           className="selection-menu selection-menu--compact"
           onMouseDown={(e) => e.preventDefault()}
