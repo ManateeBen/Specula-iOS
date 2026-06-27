@@ -320,17 +320,29 @@ export default function EpubReader({
   const lastSelectionKeyRef = useRef('')
   const customSelectionRef = useRef<{
     anchorRange: Range | null
+    currentRange: Range | null
     longPressTimer: ReturnType<typeof setTimeout> | null
     selecting: boolean
     startX: number
     startY: number
+    lastX: number
+    lastY: number
+    rafId: number | null
+    autoScrollRaf: number | null
+    autoScrollV: number
     suppressClickUntil: number
   }>({
     anchorRange: null,
+    currentRange: null,
     longPressTimer: null,
     selecting: false,
     startX: 0,
     startY: 0,
+    lastX: 0,
+    lastY: 0,
+    rafId: null,
+    autoScrollRaf: null,
+    autoScrollV: 0,
     suppressClickUntil: 0,
   })
   // Debounce timer for persisting the intra-chapter scroll position.
@@ -339,6 +351,7 @@ export default function EpubReader({
   // Floating toolbar shown over a text selection (高亮 / AI 解释).
   const [selToolbar, setSelToolbar] = useState<{ top: number; left: number } | null>(null)
   const toolbarRef = useRef<HTMLDivElement>(null)
+  const selectionOverlayRef = useRef<HTMLDivElement>(null)
   const selInfoRef = useRef<{ text: string; context: string; rect: DOMRect } | null>(null)
 
   // All highlights (user + quiz) for the current chapter that have matchable text.
@@ -473,6 +486,12 @@ export default function EpubReader({
   const handleScroll = () => {
     const el = scrollRef.current
     if (!el || loading) return
+    // A settled mobile selection is painted in viewport coordinates, so once the
+    // user scrolls the chapter (not our own drag auto-scroll) it would drift off
+    // the text. Dismiss it, matching native reader behavior.
+    if (isMobile && selInfoRef.current && !customSelectionRef.current.selecting) {
+      clearSelectionState()
+    }
     const max = el.scrollHeight - el.clientHeight
     const fraction = max > 0 ? el.scrollTop / max : 0
     if (scrollSaveTimer.current) clearTimeout(scrollSaveTimer.current)
@@ -487,16 +506,50 @@ export default function EpubReader({
     }
   }, [])
 
+  useEffect(() => {
+    return () => {
+      const sel = customSelectionRef.current
+      if (sel.longPressTimer) clearTimeout(sel.longPressTimer)
+      if (sel.rafId != null) cancelAnimationFrame(sel.rafId)
+      if (sel.autoScrollRaf != null) cancelAnimationFrame(sel.autoScrollRaf)
+      contentRef.current?.classList.remove('epub-selecting')
+      const layer = selectionOverlayRef.current
+      if (layer) {
+        for (const child of Array.from(layer.children)) {
+          ;(child as HTMLElement).style.display = 'none'
+        }
+      }
+    }
+  }, [])
+
   const idx = chapters.findIndex((c) => c.id === currentChapterId)
   const clearSelectionState = () => {
     window.getSelection()?.removeAllRanges()
     if (contentRef.current) stripSelectionPreview(contentRef.current)
-    if (customSelectionRef.current.longPressTimer) {
-      clearTimeout(customSelectionRef.current.longPressTimer)
-      customSelectionRef.current.longPressTimer = null
+    const sel = customSelectionRef.current
+    if (sel.longPressTimer) {
+      clearTimeout(sel.longPressTimer)
+      sel.longPressTimer = null
     }
-    customSelectionRef.current.anchorRange = null
-    customSelectionRef.current.selecting = false
+    if (sel.rafId != null) {
+      cancelAnimationFrame(sel.rafId)
+      sel.rafId = null
+    }
+    if (sel.autoScrollRaf != null) {
+      cancelAnimationFrame(sel.autoScrollRaf)
+      sel.autoScrollRaf = null
+    }
+    sel.autoScrollV = 0
+    sel.anchorRange = null
+    sel.currentRange = null
+    sel.selecting = false
+    contentRef.current?.classList.remove('epub-selecting')
+    const layer = selectionOverlayRef.current
+    if (layer) {
+      for (const child of Array.from(layer.children)) {
+        ;(child as HTMLElement).style.display = 'none'
+      }
+    }
     setSelToolbar(null)
     lastSelectionKeyRef.current = ''
     selInfoRef.current = null
@@ -510,32 +563,31 @@ export default function EpubReader({
     if (idx >= 0 && idx < chapters.length - 1) onChapterChange(chapters[idx + 1].id)
   }
 
-  const showSelectionForRange = (range: Range) => {
-    const content = contentRef.current
-    if (!content) return
-    stripSelectionPreview(content)
-
+  // Pull the display text, the best on-screen rect, and surrounding context out
+  // of a range. Pure reads — no DOM mutation — so it is cheap enough to call
+  // once when a selection settles.
+  const extractSelectionInfo = (
+    range: Range
+  ): { text: string; visibleRect: DOMRect; context: string } | null => {
     const text = range.toString().trim()
-    if (!text) {
-      clearSelectionState()
-      return
-    }
-
+    if (!text) return null
     const rect = range.getBoundingClientRect()
     const visibleRect =
       Array.from(range.getClientRects()).find(
         (r) => r.width > 2 && r.height > 2 && r.bottom > 0 && r.top < window.innerHeight
       ) || (rect.width || rect.height ? rect : null)
-    if (!visibleRect) return
+    if (!visibleRect) return null
+    const contextEl = range.commonAncestorContainer.parentElement
+    const context = contextEl?.textContent?.slice(0, 500) || ''
+    return { text, visibleRect, context }
+  }
 
+  const placeToolbar = (visibleRect: DOMRect, text: string, context: string) => {
     const toolbarWidth = 164
     const toolbarHeight = 44
     const minTop = isMobile ? 72 : 8
-    const contextEl = range.commonAncestorContainer.parentElement
-    const context = contextEl?.textContent?.slice(0, 500) || ''
     selInfoRef.current = { text, context, rect: visibleRect }
     lastSelectionKeyRef.current = text
-
     const top = visibleRect.top - toolbarHeight - 10
     const fallbackTop = visibleRect.bottom + 10
     setSelToolbar({
@@ -545,9 +597,64 @@ export default function EpubReader({
         window.innerWidth - toolbarWidth - 12
       ),
     })
+  }
 
-    if (text.length <= 2500) markRange(range.cloneRange(), 'selection-preview')
+  // Desktop path: native selection drives this via selectionchange. We paint a
+  // <mark> preview and clear the native range so the toolbar sits over a stable
+  // highlight. Mobile never calls this (it uses the overlay layer instead).
+  const showSelectionForRange = (range: Range) => {
+    const content = contentRef.current
+    if (!content) return
+    stripSelectionPreview(content)
+    const info = extractSelectionInfo(range)
+    if (!info) {
+      clearSelectionState()
+      return
+    }
+    placeToolbar(info.visibleRect, info.text, info.context)
+    if (info.text.length <= 2500) markRange(range.cloneRange(), 'selection-preview')
     window.getSelection()?.removeAllRanges()
+  }
+
+  // Mobile selection preview: draw the range as plain overlay rectangles in a
+  // fixed, pointer-events:none layer. This NEVER touches the content DOM, so it
+  // is reflow-free and the anchor/focus text nodes stay valid across the drag.
+  const paintSelectionOverlay = (range: Range) => {
+    const layer = selectionOverlayRef.current
+    if (!layer) return
+    const rects = range.getClientRects()
+    let used = 0
+    for (let i = 0; i < rects.length; i++) {
+      const r = rects[i]
+      if (r.width < 1 && r.height < 1) continue
+      let div = layer.children[used] as HTMLElement | undefined
+      if (!div) {
+        div = document.createElement('div')
+        div.className = 'epub-sel-rect'
+        layer.appendChild(div)
+      }
+      div.style.transform = `translate(${r.left}px, ${r.top}px)`
+      div.style.width = `${r.width}px`
+      div.style.height = `${r.height}px`
+      div.style.display = 'block'
+      used += 1
+    }
+    for (let j = used; j < layer.children.length; j++) {
+      ;(layer.children[j] as HTMLElement).style.display = 'none'
+    }
+  }
+
+  // Called once on touchend: the drag is done, so now (and only now) we do the
+  // expensive string/context extraction and the single setState that shows the
+  // toolbar. The overlay stays painted underneath it.
+  const finalizeMobileSelection = (range: Range) => {
+    const info = extractSelectionInfo(range)
+    if (!info) {
+      clearSelectionState()
+      return
+    }
+    paintSelectionOverlay(range)
+    placeToolbar(info.visibleRect, info.text, info.context)
   }
 
   const rangeFromPoint = (x: number, y: number): Range | null => {
@@ -623,6 +730,58 @@ export default function EpubReader({
     return next.collapsed ? anchor.cloneRange() : next
   }
 
+  // Runs at most once per animation frame regardless of how many touchmove
+  // events fired. This is the ONLY place that hit-tests and repaints during a
+  // drag — no setState, no content-DOM mutation.
+  const flushSelection = () => {
+    const sel = customSelectionRef.current
+    sel.rafId = null
+    if (!sel.selecting || !sel.anchorRange) return
+    const point = rangeFromPoint(sel.lastX, sel.lastY)
+    const next = point ? rangeBetweenAnchorAndPoint(sel.anchorRange, point) : null
+    if (!next) return
+    sel.currentRange = next
+    paintSelectionOverlay(next)
+  }
+
+  const scheduleSelectionFlush = () => {
+    const sel = customSelectionRef.current
+    if (sel.rafId == null) sel.rafId = requestAnimationFrame(flushSelection)
+  }
+
+  // Keep extending the selection while the finger rests in the top/bottom edge
+  // zone, scrolling the chapter under it. Self-sustaining rAF loop so it ticks
+  // even when the finger is still.
+  const autoScrollTick = () => {
+    const sel = customSelectionRef.current
+    if (!sel.selecting || sel.autoScrollV === 0) {
+      sel.autoScrollRaf = null
+      return
+    }
+    scrollRef.current?.scrollBy(0, sel.autoScrollV)
+    flushSelection()
+    sel.autoScrollRaf = requestAnimationFrame(autoScrollTick)
+  }
+
+  const updateAutoScroll = (clientY: number) => {
+    const sel = customSelectionRef.current
+    const el = scrollRef.current
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    const zone = 64
+    const maxSpeed = 14
+    let v = 0
+    if (clientY < rect.top + zone) {
+      v = -Math.ceil(((rect.top + zone - clientY) / zone) * maxSpeed)
+    } else if (clientY > rect.bottom - zone) {
+      v = Math.ceil(((clientY - (rect.bottom - zone)) / zone) * maxSpeed)
+    }
+    sel.autoScrollV = v
+    if (v !== 0 && sel.autoScrollRaf == null) {
+      sel.autoScrollRaf = requestAnimationFrame(autoScrollTick)
+    }
+  }
+
   const cancelCustomLongPress = () => {
     if (customSelectionRef.current.longPressTimer) {
       clearTimeout(customSelectionRef.current.longPressTimer)
@@ -637,43 +796,72 @@ export default function EpubReader({
     const touch = e.touches[0]
     customSelectionRef.current.startX = touch.clientX
     customSelectionRef.current.startY = touch.clientY
+    customSelectionRef.current.lastX = touch.clientX
+    customSelectionRef.current.lastY = touch.clientY
     customSelectionRef.current.selecting = false
     customSelectionRef.current.anchorRange = null
     cancelCustomLongPress()
     customSelectionRef.current.longPressTimer = setTimeout(() => {
-      const pointRange = rangeFromPoint(touch.clientX, touch.clientY)
+      const sel = customSelectionRef.current
+      const pointRange = rangeFromPoint(sel.lastX, sel.lastY)
       const anchorRange = pointRange ? expandRangeAtPoint(pointRange) : null
       if (!anchorRange) return
-      customSelectionRef.current.anchorRange = anchorRange.cloneRange()
-      customSelectionRef.current.selecting = true
-      showSelectionForRange(anchorRange)
+      sel.anchorRange = anchorRange.cloneRange()
+      sel.currentRange = anchorRange.cloneRange()
+      sel.selecting = true
+      // Hide the toolbar during the drag; it reappears on touchend.
+      setSelToolbar(null)
+      contentRef.current?.classList.add('epub-selecting')
+      paintSelectionOverlay(anchorRange)
+      // Light haptic on selection start, where supported.
+      navigator.vibrate?.(10)
     }, 350)
   }
 
   const handleCustomSelectionTouchMove = (e: React.TouchEvent) => {
     if (!isMobile || e.touches.length !== 1) return
     const touch = e.touches[0]
-    const dx = touch.clientX - customSelectionRef.current.startX
-    const dy = touch.clientY - customSelectionRef.current.startY
-    if (!customSelectionRef.current.selecting) {
+    const sel = customSelectionRef.current
+    if (!sel.selecting) {
+      const dx = touch.clientX - sel.startX
+      const dy = touch.clientY - sel.startY
       if (Math.hypot(dx, dy) > 8) cancelCustomLongPress()
       return
     }
+    // Selecting: block native scroll and do the bare minimum on this high-freq
+    // path — stash the latest point, coalesce the real work into one rAF.
     e.preventDefault()
-    const anchor = customSelectionRef.current.anchorRange
-    const pointRange = rangeFromPoint(touch.clientX, touch.clientY)
-    const nextRange = anchor && pointRange ? rangeBetweenAnchorAndPoint(anchor, pointRange) : null
-    if (nextRange) showSelectionForRange(nextRange)
+    sel.lastX = touch.clientX
+    sel.lastY = touch.clientY
+    scheduleSelectionFlush()
+    updateAutoScroll(touch.clientY)
   }
 
   const handleCustomSelectionTouchEnd = (e: React.TouchEvent) => {
     cancelCustomLongPress()
-    if (customSelectionRef.current.selecting) {
-      e.preventDefault()
-      customSelectionRef.current.suppressClickUntil = Date.now() + 450
+    const sel = customSelectionRef.current
+    if (sel.rafId != null) {
+      cancelAnimationFrame(sel.rafId)
+      sel.rafId = null
     }
-    customSelectionRef.current.selecting = false
-    customSelectionRef.current.anchorRange = null
+    if (sel.autoScrollRaf != null) {
+      cancelAnimationFrame(sel.autoScrollRaf)
+      sel.autoScrollRaf = null
+    }
+    sel.autoScrollV = 0
+    contentRef.current?.classList.remove('epub-selecting')
+    if (sel.selecting) {
+      e.preventDefault()
+      sel.suppressClickUntil = Date.now() + 450
+      const range = sel.currentRange || sel.anchorRange
+      sel.selecting = false
+      sel.anchorRange = null
+      if (range) finalizeMobileSelection(range)
+      else clearSelectionState()
+    } else {
+      sel.selecting = false
+      sel.anchorRange = null
+    }
   }
 
   // Listen for text selection changes. We wait until selection settles before
@@ -830,6 +1018,9 @@ export default function EpubReader({
           />
         )}
       </div>
+
+      {/* Mobile selection preview layer — pooled rects, never in the content flow. */}
+      <div ref={selectionOverlayRef} className="epub-selection-overlay" aria-hidden />
 
       {selToolbar && (
         <div

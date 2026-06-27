@@ -248,6 +248,35 @@
   background: rgba(22, 101, 52, 0.45);
 }
 
+/* Mobile custom-selection preview: a fixed overlay of pooled rectangles drawn
+   from Range.getClientRects(). Lives outside the content flow so dragging the
+   selection never reflows or mutates the chapter DOM. */
+.epub-selection-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  pointer-events: none;
+  contain: strict;
+}
+.epub-sel-rect {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: none;
+  background: rgba(96, 165, 250, 0.32);
+  border-radius: 2px;
+  will-change: transform;
+}
+.dark .epub-sel-rect {
+  background: rgba(96, 165, 250, 0.38);
+}
+/* While a drag-select is in progress, kill native scroll/gestures so our
+   rAF-driven edge auto-scroll is the only thing that moves the page. */
+.epub-content.epub-selecting,
+.epub-content.epub-selecting * {
+  touch-action: none;
+}
+
 .epub-content mark.selection-preview {
   background: rgba(96, 165, 250, 0.32);
   border-radius: 3px;
