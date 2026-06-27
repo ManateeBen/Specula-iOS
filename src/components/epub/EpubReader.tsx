@@ -330,6 +330,8 @@ export default function EpubReader({
     rafId: number | null
     autoScrollRaf: number | null
     autoScrollV: number
+    lockedScrollTop: number | null
+    previousOverflowY: string | null
     suppressClickUntil: number
   }>({
     anchorRange: null,
@@ -343,6 +345,8 @@ export default function EpubReader({
     rafId: null,
     autoScrollRaf: null,
     autoScrollV: 0,
+    lockedScrollTop: null,
+    previousOverflowY: null,
     suppressClickUntil: 0,
   })
   // Debounce timer for persisting the intra-chapter scroll position.
@@ -486,6 +490,11 @@ export default function EpubReader({
   const handleScroll = () => {
     const el = scrollRef.current
     if (!el || loading) return
+    if (customSelectionRef.current.selecting) {
+      const locked = customSelectionRef.current.lockedScrollTop
+      if (locked != null && el.scrollTop !== locked) el.scrollTop = locked
+      return
+    }
     // A settled mobile selection is painted in viewport coordinates, so once the
     // user scrolls the chapter (not our own drag auto-scroll) it would drift off
     // the text. Dismiss it, matching native reader behavior.
@@ -512,6 +521,9 @@ export default function EpubReader({
       if (sel.longPressTimer) clearTimeout(sel.longPressTimer)
       if (sel.rafId != null) cancelAnimationFrame(sel.rafId)
       if (sel.autoScrollRaf != null) cancelAnimationFrame(sel.autoScrollRaf)
+      if (scrollRef.current && sel.previousOverflowY != null) {
+        scrollRef.current.style.overflowY = sel.previousOverflowY
+      }
       contentRef.current?.classList.remove('epub-selecting')
       const layer = selectionOverlayRef.current
       if (layer) {
@@ -540,6 +552,11 @@ export default function EpubReader({
       sel.autoScrollRaf = null
     }
     sel.autoScrollV = 0
+    if (scrollRef.current && sel.previousOverflowY != null) {
+      scrollRef.current.style.overflowY = sel.previousOverflowY
+    }
+    sel.lockedScrollTop = null
+    sel.previousOverflowY = null
     sel.anchorRange = null
     sel.currentRange = null
     sel.selecting = false
@@ -737,7 +754,12 @@ export default function EpubReader({
     const sel = customSelectionRef.current
     sel.rafId = null
     if (!sel.selecting || !sel.anchorRange) return
-    const point = rangeFromPoint(sel.lastX, sel.lastY)
+    const scrollerRect = scrollRef.current?.getBoundingClientRect()
+    const hitY = scrollerRect
+      ? Math.min(Math.max(sel.lastY, scrollerRect.top + 4), scrollerRect.bottom - 4)
+      : sel.lastY
+    const hitX = Math.min(Math.max(sel.lastX, 4), window.innerWidth - 4)
+    const point = rangeFromPoint(hitX, hitY)
     const next = point ? rangeBetweenAnchorAndPoint(sel.anchorRange, point) : null
     if (!next) return
     sel.currentRange = next
@@ -749,43 +771,69 @@ export default function EpubReader({
     if (sel.rafId == null) sel.rafId = requestAnimationFrame(flushSelection)
   }
 
-  // Keep extending the selection while the finger rests in the top/bottom edge
-  // zone, scrolling the chapter under it. Self-sustaining rAF loop so it ticks
-  // even when the finger is still.
-  const autoScrollTick = () => {
-    const sel = customSelectionRef.current
-    if (!sel.selecting || sel.autoScrollV === 0) {
-      sel.autoScrollRaf = null
-      return
-    }
-    scrollRef.current?.scrollBy(0, sel.autoScrollV)
-    flushSelection()
-    sel.autoScrollRaf = requestAnimationFrame(autoScrollTick)
-  }
-
-  const updateAutoScroll = (clientY: number) => {
-    const sel = customSelectionRef.current
-    const el = scrollRef.current
-    if (!el) return
-    const rect = el.getBoundingClientRect()
-    const zone = 64
-    const maxSpeed = 14
-    let v = 0
-    if (clientY < rect.top + zone) {
-      v = -Math.ceil(((rect.top + zone - clientY) / zone) * maxSpeed)
-    } else if (clientY > rect.bottom - zone) {
-      v = Math.ceil(((clientY - (rect.bottom - zone)) / zone) * maxSpeed)
-    }
-    sel.autoScrollV = v
-    if (v !== 0 && sel.autoScrollRaf == null) {
-      sel.autoScrollRaf = requestAnimationFrame(autoScrollTick)
-    }
-  }
-
   const cancelCustomLongPress = () => {
     if (customSelectionRef.current.longPressTimer) {
       clearTimeout(customSelectionRef.current.longPressTimer)
       customSelectionRef.current.longPressTimer = null
+    }
+  }
+
+  const stopSelectionAutoScroll = () => {
+    const sel = customSelectionRef.current
+    sel.autoScrollV = 0
+    if (sel.autoScrollRaf != null) {
+      cancelAnimationFrame(sel.autoScrollRaf)
+      sel.autoScrollRaf = null
+    }
+  }
+
+  const stepSelectionAutoScroll = () => {
+    const sel = customSelectionRef.current
+    const scroller = scrollRef.current
+    if (!sel.selecting || !scroller || sel.autoScrollV === 0) {
+      sel.autoScrollRaf = null
+      return
+    }
+
+    const before = scroller.scrollTop
+    const max = scroller.scrollHeight - scroller.clientHeight
+    const next = Math.min(Math.max(0, before + sel.autoScrollV), max)
+    if (next !== before) {
+      scroller.scrollTop = next
+      sel.lockedScrollTop = next
+      scheduleSelectionFlush()
+    }
+    sel.autoScrollRaf = requestAnimationFrame(stepSelectionAutoScroll)
+  }
+
+  const updateSelectionAutoScroll = (clientY: number) => {
+    const sel = customSelectionRef.current
+    const scroller = scrollRef.current
+    if (!sel.selecting || !scroller) return
+
+    const rect = scroller.getBoundingClientRect()
+    const edge = Math.min(96, Math.max(56, rect.height * 0.16))
+    let v = 0
+    if (clientY < rect.top + edge) {
+      const t = (rect.top + edge - clientY) / edge
+      v = -Math.round(4 + t * 18)
+    } else if (clientY > rect.bottom - edge) {
+      const t = (clientY - (rect.bottom - edge)) / edge
+      v = Math.round(4 + t * 18)
+    }
+
+    const max = scroller.scrollHeight - scroller.clientHeight
+    if ((v < 0 && scroller.scrollTop <= 0) || (v > 0 && scroller.scrollTop >= max)) v = 0
+    sel.autoScrollV = v
+    if (v === 0) {
+      if (sel.autoScrollRaf != null) {
+        cancelAnimationFrame(sel.autoScrollRaf)
+        sel.autoScrollRaf = null
+      }
+      return
+    }
+    if (sel.autoScrollRaf == null) {
+      sel.autoScrollRaf = requestAnimationFrame(stepSelectionAutoScroll)
     }
   }
 
@@ -809,6 +857,12 @@ export default function EpubReader({
       sel.anchorRange = anchorRange.cloneRange()
       sel.currentRange = anchorRange.cloneRange()
       sel.selecting = true
+      const scroller = scrollRef.current
+      if (scroller) {
+        sel.lockedScrollTop = scroller.scrollTop
+        sel.previousOverflowY = scroller.style.overflowY
+        scroller.style.overflowY = 'hidden'
+      }
       // Hide the toolbar during the drag; it reappears on touchend.
       setSelToolbar(null)
       contentRef.current?.classList.add('epub-selecting')
@@ -831,10 +885,13 @@ export default function EpubReader({
     // Selecting: block native scroll and do the bare minimum on this high-freq
     // path — stash the latest point, coalesce the real work into one rAF.
     e.preventDefault()
+    if (scrollRef.current && sel.lockedScrollTop != null) {
+      scrollRef.current.scrollTop = sel.lockedScrollTop
+    }
     sel.lastX = touch.clientX
     sel.lastY = touch.clientY
+    updateSelectionAutoScroll(touch.clientY)
     scheduleSelectionFlush()
-    updateAutoScroll(touch.clientY)
   }
 
   const handleCustomSelectionTouchEnd = (e: React.TouchEvent) => {
@@ -844,11 +901,12 @@ export default function EpubReader({
       cancelAnimationFrame(sel.rafId)
       sel.rafId = null
     }
-    if (sel.autoScrollRaf != null) {
-      cancelAnimationFrame(sel.autoScrollRaf)
-      sel.autoScrollRaf = null
+    stopSelectionAutoScroll()
+    if (scrollRef.current && sel.previousOverflowY != null) {
+      scrollRef.current.style.overflowY = sel.previousOverflowY
     }
-    sel.autoScrollV = 0
+    sel.lockedScrollTop = null
+    sel.previousOverflowY = null
     contentRef.current?.classList.remove('epub-selecting')
     if (sel.selecting) {
       e.preventDefault()
@@ -915,6 +973,17 @@ export default function EpubReader({
     document.addEventListener('contextmenu', preventContentContextMenu, true)
     return () => {
       document.removeEventListener('contextmenu', preventContentContextMenu, true)
+    }
+  }, [])
+
+  useEffect(() => {
+    const preventScrollWhileSelecting = (event: TouchEvent) => {
+      if (!customSelectionRef.current.selecting) return
+      event.preventDefault()
+    }
+    document.addEventListener('touchmove', preventScrollWhileSelecting, { capture: true, passive: false })
+    return () => {
+      document.removeEventListener('touchmove', preventScrollWhileSelecting, true)
     }
   }, [])
 
