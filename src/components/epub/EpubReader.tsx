@@ -191,6 +191,16 @@ function locateHighlight(
 // Unwrap all <mark> elements, keeping their text content (no full DOM reset).
 function stripMarks(el: HTMLElement): void {
   for (const mark of [...el.querySelectorAll('mark')]) {
+    if (mark.classList.contains('selection-preview')) continue
+    const parent = mark.parentNode
+    if (!parent) continue
+    while (mark.firstChild) parent.insertBefore(mark.firstChild, mark)
+    parent.removeChild(mark)
+  }
+}
+
+function stripSelectionPreview(el: HTMLElement): void {
+  for (const mark of [...el.querySelectorAll('mark.selection-preview')]) {
     const parent = mark.parentNode
     if (!parent) continue
     while (mark.firstChild) parent.insertBefore(mark.firstChild, mark)
@@ -308,6 +318,21 @@ export default function EpubReader({
   const pendingRestoreRef = useRef<number | null>(restorePosRef.current)
   const selectionSettleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastSelectionKeyRef = useRef('')
+  const customSelectionRef = useRef<{
+    anchorRange: Range | null
+    longPressTimer: ReturnType<typeof setTimeout> | null
+    selecting: boolean
+    startX: number
+    startY: number
+    suppressClickUntil: number
+  }>({
+    anchorRange: null,
+    longPressTimer: null,
+    selecting: false,
+    startX: 0,
+    startY: 0,
+    suppressClickUntil: 0,
+  })
   // Debounce timer for persisting the intra-chapter scroll position.
   const scrollSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -465,6 +490,13 @@ export default function EpubReader({
   const idx = chapters.findIndex((c) => c.id === currentChapterId)
   const clearSelectionState = () => {
     window.getSelection()?.removeAllRanges()
+    if (contentRef.current) stripSelectionPreview(contentRef.current)
+    if (customSelectionRef.current.longPressTimer) {
+      clearTimeout(customSelectionRef.current.longPressTimer)
+      customSelectionRef.current.longPressTimer = null
+    }
+    customSelectionRef.current.anchorRange = null
+    customSelectionRef.current.selecting = false
     setSelToolbar(null)
     lastSelectionKeyRef.current = ''
     selInfoRef.current = null
@@ -478,12 +510,180 @@ export default function EpubReader({
     if (idx >= 0 && idx < chapters.length - 1) onChapterChange(chapters[idx + 1].id)
   }
 
+  const showSelectionForRange = (range: Range) => {
+    const content = contentRef.current
+    if (!content) return
+    stripSelectionPreview(content)
+
+    const text = range.toString().trim()
+    if (!text) {
+      clearSelectionState()
+      return
+    }
+
+    const rect = range.getBoundingClientRect()
+    const visibleRect =
+      Array.from(range.getClientRects()).find(
+        (r) => r.width > 2 && r.height > 2 && r.bottom > 0 && r.top < window.innerHeight
+      ) || (rect.width || rect.height ? rect : null)
+    if (!visibleRect) return
+
+    const toolbarWidth = 164
+    const toolbarHeight = 44
+    const minTop = isMobile ? 72 : 8
+    const contextEl = range.commonAncestorContainer.parentElement
+    const context = contextEl?.textContent?.slice(0, 500) || ''
+    selInfoRef.current = { text, context, rect: visibleRect }
+    lastSelectionKeyRef.current = text
+
+    const top = visibleRect.top - toolbarHeight - 10
+    const fallbackTop = visibleRect.bottom + 10
+    setSelToolbar({
+      top: top > minTop ? top : Math.min(fallbackTop, window.innerHeight - toolbarHeight - 8),
+      left: Math.min(
+        Math.max(12, visibleRect.left + visibleRect.width / 2 - toolbarWidth / 2),
+        window.innerWidth - toolbarWidth - 12
+      ),
+    })
+
+    if (text.length <= 2500) markRange(range.cloneRange(), 'selection-preview')
+    window.getSelection()?.removeAllRanges()
+  }
+
+  const rangeFromPoint = (x: number, y: number): Range | null => {
+    const doc = document as Document & {
+      caretRangeFromPoint?: (x: number, y: number) => Range | null
+      caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null
+    }
+    let range = doc.caretRangeFromPoint?.(x, y) || null
+    if (!range) {
+      const pos = doc.caretPositionFromPoint?.(x, y)
+      if (pos) {
+        range = document.createRange()
+        range.setStart(pos.offsetNode, pos.offset)
+        range.collapse(true)
+      }
+    }
+    const content = contentRef.current
+    if (!range || !content || !content.contains(range.startContainer)) return null
+    return range
+  }
+
+  const expandRangeAtPoint = (range: Range): Range | null => {
+    const node = range.startContainer
+    if (node.nodeType !== Node.TEXT_NODE) return null
+    const textNode = node as Text
+    const text = textNode.nodeValue || ''
+    if (!text) return null
+
+    let offset = Math.min(range.startOffset, text.length - 1)
+    while (offset > 0 && /\s/.test(text[offset])) offset -= 1
+    if (/\s/.test(text[offset])) return null
+
+    const asciiWord = /[A-Za-z0-9_.$-]/
+    const hardBoundary = /[\s,.;:!?()[\]{}<>，。！？；：（）【】《》“”‘’、]/
+    let start = offset
+    let end = offset + 1
+
+    if (asciiWord.test(text[offset])) {
+      while (start > 0 && asciiWord.test(text[start - 1])) start -= 1
+      while (end < text.length && asciiWord.test(text[end])) end += 1
+    } else {
+      while (start > 0 && !hardBoundary.test(text[start - 1]) && offset - start < 12) start -= 1
+      while (end < text.length && !hardBoundary.test(text[end]) && end - offset < 14) end += 1
+    }
+
+    while (start < end && /\s/.test(text[start])) start += 1
+    while (end > start && /\s/.test(text[end - 1])) end -= 1
+    if (start >= end) return null
+
+    const expanded = document.createRange()
+    expanded.setStart(textNode, start)
+    expanded.setEnd(textNode, end)
+    return expanded
+  }
+
+  const rangeBetweenAnchorAndPoint = (anchor: Range, point: Range): Range | null => {
+    const focus = point.cloneRange()
+    focus.collapse(true)
+    const anchorStart = anchor.cloneRange()
+    anchorStart.collapse(true)
+    const next = document.createRange()
+    try {
+      if (focus.compareBoundaryPoints(Range.START_TO_START, anchorStart) < 0) {
+        next.setStart(focus.startContainer, focus.startOffset)
+        next.setEnd(anchor.endContainer, anchor.endOffset)
+      } else {
+        next.setStart(anchor.startContainer, anchor.startOffset)
+        next.setEnd(focus.startContainer, focus.startOffset)
+      }
+    } catch {
+      return null
+    }
+    return next.collapsed ? anchor.cloneRange() : next
+  }
+
+  const cancelCustomLongPress = () => {
+    if (customSelectionRef.current.longPressTimer) {
+      clearTimeout(customSelectionRef.current.longPressTimer)
+      customSelectionRef.current.longPressTimer = null
+    }
+  }
+
+  const handleCustomSelectionTouchStart = (e: React.TouchEvent) => {
+    if (!isMobile || e.touches.length !== 1) return
+    const target = e.target as HTMLElement
+    if (target.closest('img, a, button, .selection-menu')) return
+    const touch = e.touches[0]
+    customSelectionRef.current.startX = touch.clientX
+    customSelectionRef.current.startY = touch.clientY
+    customSelectionRef.current.selecting = false
+    customSelectionRef.current.anchorRange = null
+    cancelCustomLongPress()
+    customSelectionRef.current.longPressTimer = setTimeout(() => {
+      const pointRange = rangeFromPoint(touch.clientX, touch.clientY)
+      const anchorRange = pointRange ? expandRangeAtPoint(pointRange) : null
+      if (!anchorRange) return
+      customSelectionRef.current.anchorRange = anchorRange.cloneRange()
+      customSelectionRef.current.selecting = true
+      showSelectionForRange(anchorRange)
+    }, 350)
+  }
+
+  const handleCustomSelectionTouchMove = (e: React.TouchEvent) => {
+    if (!isMobile || e.touches.length !== 1) return
+    const touch = e.touches[0]
+    const dx = touch.clientX - customSelectionRef.current.startX
+    const dy = touch.clientY - customSelectionRef.current.startY
+    if (!customSelectionRef.current.selecting) {
+      if (Math.hypot(dx, dy) > 8) cancelCustomLongPress()
+      return
+    }
+    e.preventDefault()
+    const anchor = customSelectionRef.current.anchorRange
+    const pointRange = rangeFromPoint(touch.clientX, touch.clientY)
+    const nextRange = anchor && pointRange ? rangeBetweenAnchorAndPoint(anchor, pointRange) : null
+    if (nextRange) showSelectionForRange(nextRange)
+  }
+
+  const handleCustomSelectionTouchEnd = (e: React.TouchEvent) => {
+    cancelCustomLongPress()
+    if (customSelectionRef.current.selecting) {
+      e.preventDefault()
+      customSelectionRef.current.suppressClickUntil = Date.now() + 450
+    }
+    customSelectionRef.current.selecting = false
+    customSelectionRef.current.anchorRange = null
+  }
+
   // Listen for text selection changes. We wait until selection settles before
   // showing the toolbar, otherwise iOS handle dragging makes the toolbar jitter.
   useEffect(() => {
     const updateSelectionToolbar = () => {
+      if (isMobile) return
       const sel = window.getSelection()
       if (!sel || sel.isCollapsed) {
+        if (contentRef.current?.querySelector('mark.selection-preview') && selInfoRef.current) return
         lastSelectionKeyRef.current = ''
         setSelToolbar(null)
         return
@@ -501,37 +701,14 @@ export default function EpubReader({
         return
       }
       const range = sel.getRangeAt(0)
-      const rect = range.getBoundingClientRect()
-      const visibleRect =
-        Array.from(range.getClientRects()).find(
-          (r) => r.width > 2 && r.height > 2 && r.bottom > 0 && r.top < window.innerHeight
-        ) || (rect.width || rect.height ? rect : null)
-      if (!visibleRect) return
       const selectionKey = text
       if (selectionKey === lastSelectionKeyRef.current) return
-      lastSelectionKeyRef.current = selectionKey
-
-      const toolbarWidth = 164
-      const toolbarHeight = 44
-      const minTop = isMobile ? 78 : 8
-      const contextEl = range.commonAncestorContainer.parentElement
-      const context = contextEl?.textContent?.slice(0, 500) || ''
-      selInfoRef.current = { text, context, rect: visibleRect }
-
-      const top = visibleRect.top - toolbarHeight - 10
-      const fallbackTop = visibleRect.bottom + 10
-      setSelToolbar({
-        top: top > minTop ? top : Math.min(fallbackTop, window.innerHeight - toolbarHeight - 8),
-        left: Math.min(
-          Math.max(12, visibleRect.left + visibleRect.width / 2 - toolbarWidth / 2),
-          window.innerWidth - toolbarWidth - 12
-        ),
-      })
+      showSelectionForRange(range.cloneRange())
     }
 
     const handleSelectionChange = () => {
       if (selectionSettleTimerRef.current) clearTimeout(selectionSettleTimerRef.current)
-      selectionSettleTimerRef.current = setTimeout(updateSelectionToolbar, 180)
+      selectionSettleTimerRef.current = setTimeout(updateSelectionToolbar, 120)
     }
     document.addEventListener('selectionchange', handleSelectionChange)
     return () => {
@@ -583,6 +760,10 @@ export default function EpubReader({
 
   // Click an inlined image to ask the vision model to explain it.
   const handleClick = (e: React.MouseEvent) => {
+    if (Date.now() < customSelectionRef.current.suppressClickUntil) {
+      e.stopPropagation()
+      return
+    }
     const target = e.target as HTMLElement
     if (target.tagName !== 'IMG') {
       if (!window.getSelection()?.toString()) onToggleChrome?.()
@@ -606,6 +787,10 @@ export default function EpubReader({
   }
 
   const handleRootClickCapture = (e: React.MouseEvent) => {
+    if (Date.now() < customSelectionRef.current.suppressClickUntil) {
+      e.stopPropagation()
+      return
+    }
     if (!selToolbar) return
     const target = e.target as Node
     if (toolbarRef.current?.contains(target)) return
@@ -614,7 +799,15 @@ export default function EpubReader({
   }
 
   return (
-    <div className="relative flex h-full flex-col" onClickCapture={handleRootClickCapture}>
+    <div
+      className="relative flex h-full flex-col bg-amber-50 transition-[padding] duration-200 dark:bg-gray-900"
+      style={
+        isMobile && !chromeVisible
+          ? { paddingTop: 'calc(max(env(safe-area-inset-top), 44px) + 0.5rem)' }
+          : undefined
+      }
+      onClickCapture={handleRootClickCapture}
+    >
       <div
         ref={scrollRef}
         onScroll={handleScroll}
@@ -625,9 +818,15 @@ export default function EpubReader({
         ) : (
           <div
             ref={contentRef}
-            className="epub-content epub-content--images mx-auto max-w-3xl px-8 py-8"
+            className={`epub-content epub-content--images mx-auto max-w-3xl px-8 py-8 ${
+              isMobile ? 'epub-content--custom-select' : ''
+            }`}
             onClick={handleClick}
             onContextMenu={(event) => event.preventDefault()}
+            onTouchStart={handleCustomSelectionTouchStart}
+            onTouchMove={handleCustomSelectionTouchMove}
+            onTouchEnd={handleCustomSelectionTouchEnd}
+            onTouchCancel={handleCustomSelectionTouchEnd}
           />
         )}
       </div>
