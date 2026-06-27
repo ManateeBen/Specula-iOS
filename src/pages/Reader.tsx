@@ -38,9 +38,10 @@ export default function Reader() {
   const [fileData, setFileData] = useState<Uint8Array | null>(null)
   const [chapters, setChapters] = useState<Chapter[]>([])
   const [highlights, setHighlights] = useState<Highlight[]>([])
-  const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
+  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768)
   const [tocOpen, setTocOpen] = useState(!isMobile)
   const [notesOpen, setNotesOpen] = useState(!isMobile)
+  const [chromeVisible, setChromeVisible] = useState(!isMobile)
   const [pdfJumpChapterId, setPdfJumpChapterId] = useState<string | null>(null)
   const [highlightFilter, setHighlightFilter] = useState<HighlightFilter>('all')
   const [unlocatedIds, setUnlocatedIds] = useState<string[]>([])
@@ -54,6 +55,24 @@ export default function Reader() {
   const [imageSelection, setImageSelection] = useState<ImageSelectionInfo | null>(null)
   const [currentChapterId, setCurrentChapterId] = useState<string | null>(null)
   const [initialPosition, setInitialPosition] = useState<string>('')
+
+  useEffect(() => {
+    const updateMobileState = () => {
+      const nextIsMobile = window.innerWidth < 768
+      setIsMobile(nextIsMobile)
+      setChromeVisible((visible) => (nextIsMobile ? visible : true))
+      if (nextIsMobile) {
+        setTocOpen(false)
+        setNotesOpen(false)
+      } else {
+        setTocOpen(true)
+        setNotesOpen(true)
+      }
+    }
+    updateMobileState()
+    window.addEventListener('resize', updateMobileState)
+    return () => window.removeEventListener('resize', updateMobileState)
+  }, [])
 
   useEffect(() => {
     if (!bookId) return
@@ -215,8 +234,15 @@ export default function Reader() {
         </aside>
       )}
 
-      <div className="flex flex-1 flex-col overflow-hidden">
-        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-gray-200 bg-white px-3 py-2 dark:border-gray-700 dark:bg-gray-900 sm:px-4">
+      <div className="relative flex flex-1 flex-col overflow-hidden">
+        <div
+          className={`z-10 flex shrink-0 items-center justify-between gap-2 border-b border-gray-200 bg-white/95 px-3 py-2 shadow-sm backdrop-blur dark:border-gray-700 dark:bg-gray-900/95 sm:px-4 ${
+            isMobile
+              ? `absolute inset-x-0 top-0 transition-transform duration-200 ${chromeVisible ? 'translate-y-0' : '-translate-y-full'}`
+              : ''
+          }`}
+          style={isMobile ? { paddingTop: 'calc(env(safe-area-inset-top) + 0.5rem)' } : undefined}
+        >
           <div className="flex min-w-0 items-center gap-2 sm:gap-3">
             <button
               onClick={() => setTocOpen(!tocOpen)}
@@ -274,7 +300,9 @@ export default function Reader() {
               bookId={book.id}
               chapters={chapters}
               chapterId={activeChapterId}
+              chromeVisible={chromeVisible}
               onChapterChange={handleChapterChange}
+              onToggleChrome={() => setChromeVisible((visible) => !visible)}
               initialPosition={initialPosition}
               highlightExcerpt={deepLinkHighlight}
               highlights={highlights}

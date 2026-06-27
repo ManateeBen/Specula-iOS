@@ -1,7 +1,35 @@
 import { useEffect, useRef, useState, useMemo } from 'react'
-import { Highlighter, Sparkles } from 'lucide-react'
+import { Check, Copy, Highlighter, Sparkles } from 'lucide-react'
 import type { Chapter, Highlight, ImageSelectionInfo } from '../../types'
 import { buildWeakPointIndexMap, getWeakPointColorSlot } from '../../utils/weakPointStyle'
+
+type HighlightColor = 'yellow' | 'pink' | 'purple' | 'blue' | 'green'
+
+const HIGHLIGHT_COLORS: { key: HighlightColor; className: string; swatch: string }[] = [
+  { key: 'yellow', className: 'user-highlight-yellow', swatch: '#f4c96b' },
+  { key: 'pink', className: 'user-highlight-pink', swatch: '#fb7185' },
+  { key: 'purple', className: 'user-highlight-purple', swatch: '#a78bfa' },
+  { key: 'blue', className: 'user-highlight-blue', swatch: '#60a5fa' },
+  { key: 'green', className: 'user-highlight-green', swatch: '#4ade80' },
+]
+
+const DEFAULT_HIGHLIGHT_COLOR: HighlightColor = 'yellow'
+const HIGHLIGHT_META_PREFIX = '[specula-highlight:'
+
+function highlightClassForColor(color: HighlightColor): string {
+  return HIGHLIGHT_COLORS.find((c) => c.key === color)?.className || HIGHLIGHT_COLORS[0].className
+}
+
+function getHighlightColor(context: string): HighlightColor {
+  if (!context.startsWith(HIGHLIGHT_META_PREFIX)) return DEFAULT_HIGHLIGHT_COLOR
+  const end = context.indexOf(']')
+  const color = context.slice(HIGHLIGHT_META_PREFIX.length, end > -1 ? end : undefined)
+  return HIGHLIGHT_COLORS.some((c) => c.key === color) ? (color as HighlightColor) : DEFAULT_HIGHLIGHT_COLOR
+}
+
+function withHighlightMeta(context: string, color: HighlightColor): string {
+  return `${HIGHLIGHT_META_PREFIX}${color}]\n${context}`
+}
 
 // Index every text node under `root` and the running text offset where it
 // starts, so we can map a position in the concatenated text back to a DOM node.
@@ -170,6 +198,19 @@ function stripMarks(el: HTMLElement): void {
   }
 }
 
+function sanitizeRenderedChapter(el: HTMLElement): void {
+  let nestedBody = el.querySelector('body')
+  while (nestedBody) {
+    const parent = nestedBody.parentNode
+    if (!parent) break
+    while (nestedBody.firstChild) parent.insertBefore(nestedBody.firstChild, nestedBody)
+    parent.removeChild(nestedBody)
+    nestedBody = el.querySelector('body')
+  }
+
+  el.querySelectorAll('head, style, script, link, meta, title').forEach((node) => node.remove())
+}
+
 // Highlight a range by wrapping each intersected text-node segment in its own
 // <mark>. Per-node wrapping always satisfies surroundContents (single text
 // node, no partial elements), so it works even when the range spans multiple
@@ -218,7 +259,9 @@ interface Props {
   bookId: string
   chapters: Chapter[]
   chapterId: string | null
+  chromeVisible?: boolean
   onChapterChange: (chapterId: string) => void
+  onToggleChrome?: () => void
   initialPosition?: string
   highlightExcerpt?: string | null
   highlights?: Highlight[]
@@ -237,7 +280,9 @@ export default function EpubReader({
   bookId,
   chapters,
   chapterId: currentChapterId,
+  chromeVisible = true,
   onChapterChange,
+  onToggleChrome,
   initialPosition,
   highlightExcerpt,
   highlights,
@@ -256,6 +301,7 @@ export default function EpubReader({
   const [pageIndex, setPageIndex] = useState(0)
   const [pageCount, setPageCount] = useState(1)
   const [pageWidth, setPageWidth] = useState(0)
+  const [pageContentWidth, setPageContentWidth] = useState(0)
   const [viewportVersion, setViewportVersion] = useState(0)
   const pageGap = 24
 
@@ -337,6 +383,15 @@ export default function EpubReader({
     const el = contentRef.current
     if (!el) return
     el.innerHTML = html
+    sanitizeRenderedChapter(el)
+    const images = Array.from(el.querySelectorAll('img'))
+    const refreshLayout = () => setViewportVersion((version) => version + 1)
+    images.forEach((img) => {
+      if (!img.complete) img.addEventListener('load', refreshLayout, { once: true })
+    })
+    return () => {
+      images.forEach((img) => img.removeEventListener('load', refreshLayout))
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [html, loading])
 
@@ -358,7 +413,7 @@ export default function EpubReader({
               wpIndex,
               colorSlot: wpIndex ? getWeakPointColorSlot(wpIndex) : undefined,
             })
-          : markRange(range, 'user-highlight')
+          : markRange(range, `user-highlight ${highlightClassForColor(getHighlightColor(h.context))}`)
         : false
       if (!ok) unlocated.push(h.id)
     }
@@ -385,9 +440,13 @@ export default function EpubReader({
 
     const measure = () => {
       const width = container.clientWidth
+      const contentWidth = Math.max(280, width - 64)
       if (!width) return
       setPageWidth(width)
-      const count = Math.max(1, Math.ceil((content.scrollWidth + pageGap) / (width + pageGap)))
+      setPageContentWidth(contentWidth)
+      const horizontalPadding = width - contentWidth
+      const scrollableColumnsWidth = Math.max(contentWidth, content.scrollWidth - horizontalPadding)
+      const count = Math.max(1, Math.ceil((scrollableColumnsWidth + pageGap) / (contentWidth + pageGap)))
       const restore = pendingRestoreRef.current
       pendingRestoreRef.current = null
       setPageCount(count)
@@ -415,7 +474,8 @@ export default function EpubReader({
     const target = (range?.startContainer.parentElement as HTMLElement) || null
     if (target) {
       if (isPaged && pageWidth) {
-        const targetPage = Math.floor(target.offsetLeft / (pageWidth + pageGap))
+        const pageStride = (pageContentWidth || pageWidth) + pageGap
+        const targetPage = Math.floor(target.offsetLeft / pageStride)
         setPageIndex(Math.min(Math.max(0, targetPage), pageCount - 1))
       } else {
         target.scrollIntoView({ behavior: 'smooth', block: 'center' })
@@ -490,15 +550,20 @@ export default function EpubReader({
       }
       const range = sel.getRangeAt(0)
       const rect = range.getBoundingClientRect()
-      const toolbarWidth = 184
-      const toolbarHeight = 40
+      const toolbarWidth = Math.min(window.innerWidth - 24, 336)
+      const toolbarHeight = 116
       const contextEl = range.commonAncestorContainer.parentElement
       const context = contextEl?.textContent?.slice(0, 500) || ''
       selRangeRef.current = range.cloneRange()
       selInfoRef.current = { text, context, rect }
+      const top = rect.top - toolbarHeight - 12
+      const fallbackTop = rect.bottom + 12
       setSelToolbar({
-        top: Math.max(8, rect.top - toolbarHeight - 10),
-        left: Math.min(Math.max(8, rect.left), window.innerWidth - toolbarWidth - 8),
+        top: top > 8 ? top : Math.min(fallbackTop, window.innerHeight - toolbarHeight - 8),
+        left: Math.min(
+          Math.max(12, rect.left + rect.width / 2 - toolbarWidth / 2),
+          window.innerWidth - toolbarWidth - 12
+        ),
       })
     }
     document.addEventListener('selectionchange', handleSelectionChange)
@@ -516,7 +581,19 @@ export default function EpubReader({
     return () => document.removeEventListener('contextmenu', preventContentContextMenu)
   }, [])
 
-  const handleManualHighlight = async () => {
+  const handleCopySelection = async () => {
+    const info = selInfoRef.current
+    if (!info) return
+    try {
+      await navigator.clipboard?.writeText(info.text)
+    } catch {
+      // Clipboard permission can be unavailable inside some WebViews.
+    }
+    setSelToolbar(null)
+    window.getSelection()?.removeAllRanges()
+  }
+
+  const handleManualHighlight = async (color: HighlightColor = DEFAULT_HIGHLIGHT_COLOR) => {
     const info = selInfoRef.current
     if (!info) return
     window.getSelection()?.removeAllRanges()
@@ -526,7 +603,7 @@ export default function EpubReader({
         bookId,
         chapterId: currentChapterId,
         selectedText: info.text,
-        context: info.context,
+        context: withHighlightMeta(info.context, color),
         aiExplanation: null,
         teachingMode: null,
         source: 'user',
@@ -549,7 +626,10 @@ export default function EpubReader({
   const handleClick = (e: React.MouseEvent) => {
     if (!onImageSelect) return
     const target = e.target as HTMLElement
-    if (target.tagName !== 'IMG') return
+    if (target.tagName !== 'IMG') {
+      if (isPaged && !window.getSelection()?.toString()) onToggleChrome?.()
+      return
+    }
     const src = target.getAttribute('src') || ''
     if (!src.startsWith('data:image/')) return
     const alt = target.getAttribute('alt') || ''
@@ -584,7 +664,7 @@ export default function EpubReader({
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="relative flex h-full flex-col">
       <div
         ref={scrollRef}
         onScroll={handleScroll}
@@ -605,15 +685,16 @@ export default function EpubReader({
                 ? {
                     boxSizing: 'border-box',
                     columnGap: pageGap,
-                    columnWidth: pageWidth || undefined,
+                    columnWidth: pageContentWidth || undefined,
                     height: '100%',
-                    transform: `translate3d(-${pageIndex * (pageWidth + pageGap)}px, 0, 0)`,
+                    transform: `translate3d(-${pageIndex * ((pageContentWidth || pageWidth) + pageGap)}px, 0, 0)`,
                     transition: 'transform 180ms ease-out',
                     width: pageWidth || undefined,
                   }
                 : undefined
             }
             onClick={handleClick}
+            onContextMenu={(event) => event.preventDefault()}
           />
         )}
       </div>
@@ -621,29 +702,67 @@ export default function EpubReader({
       {selToolbar && (
         <div
           style={{ position: 'fixed', top: selToolbar.top, left: selToolbar.left, zIndex: 1000 }}
-          className="flex overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800"
+          className="selection-menu w-[min(calc(100vw-24px),336px)]"
           onMouseDown={(e) => e.preventDefault()}
           onTouchStart={(e) => e.preventDefault()}
         >
-          <button
-            onClick={handleManualHighlight}
-            className="flex items-center gap-1 px-3 py-1.5 text-xs hover:bg-gray-100 dark:hover:bg-gray-700"
-          >
-            <Highlighter className="h-3.5 w-3.5 text-yellow-500" />
-            高亮
-          </button>
-          <div className="w-px bg-gray-200 dark:bg-gray-700" />
-          <button
-            onClick={handleExplainSelection}
-            className="flex items-center gap-1 px-3 py-1.5 text-xs hover:bg-gray-100 dark:hover:bg-gray-700"
-          >
-            <Sparkles className="h-3.5 w-3.5 text-specula-500" />
-            AI 解释
-          </button>
+          <div className="selection-menu__styles">
+            <button
+              type="button"
+              className="selection-menu__style-button selection-menu__style-button--active"
+              onClick={() => handleManualHighlight(DEFAULT_HIGHLIGHT_COLOR)}
+              aria-label="默认高亮"
+            >
+              <span>A</span>
+            </button>
+            <button
+              type="button"
+              className="selection-menu__style-button"
+              onClick={() => handleManualHighlight(DEFAULT_HIGHLIGHT_COLOR)}
+              aria-label="下划线高亮"
+            >
+              <span className="border-b-2 border-white/80">A</span>
+            </button>
+            <div className="selection-menu__colors">
+              {HIGHLIGHT_COLORS.map((color) => (
+                <button
+                  key={color.key}
+                  type="button"
+                  className="selection-menu__color"
+                  style={{ backgroundColor: color.swatch }}
+                  onClick={() => handleManualHighlight(color.key)}
+                  aria-label={`${color.key} 高亮`}
+                >
+                  {color.key === DEFAULT_HIGHLIGHT_COLOR && <Check className="h-4 w-4 text-gray-900" />}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="selection-menu__actions">
+            <button type="button" className="selection-menu__action" onClick={handleCopySelection}>
+              <Copy className="h-5 w-5" />
+              <span>复制</span>
+            </button>
+            <button type="button" className="selection-menu__action" onClick={() => handleManualHighlight()}>
+              <Highlighter className="h-5 w-5" />
+              <span>高亮</span>
+            </button>
+            <button type="button" className="selection-menu__action" onClick={handleExplainSelection}>
+              <Sparkles className="h-5 w-5" />
+              <span>AI 解释</span>
+            </button>
+          </div>
         </div>
       )}
 
-      <div className="flex shrink-0 items-center justify-between border-t border-gray-200 bg-white px-4 py-2 dark:border-gray-700 dark:bg-gray-900">
+      <div
+        className={`flex shrink-0 items-center justify-between border-t border-gray-200 bg-white/95 px-4 py-2 shadow-[0_-2px_12px_rgba(15,23,42,0.08)] backdrop-blur transition-transform duration-200 dark:border-gray-700 dark:bg-gray-900/95 ${
+          isPaged
+            ? `absolute inset-x-0 bottom-0 z-20 ${chromeVisible ? 'translate-y-0' : 'translate-y-full'}`
+            : ''
+        }`}
+        style={isPaged ? { paddingBottom: 'calc(env(safe-area-inset-bottom) + 0.5rem)' } : undefined}
+      >
         <button
           onClick={() => turnPage(-1)}
           disabled={isPaged ? idx <= 0 && pageIndex <= 0 : idx <= 0}

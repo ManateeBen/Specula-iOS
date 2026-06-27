@@ -446,6 +446,21 @@ const IMG_MIME: Record<string, string> = {
   '.bmp': 'image/bmp',
 }
 
+function sanitizeEpubBody(body: Element): void {
+  let nestedBody = elsByLocal(body, 'body')[0]
+  while (nestedBody) {
+    const parent = nestedBody.parentNode
+    if (!parent) break
+    while (nestedBody.firstChild) parent.insertBefore(nestedBody.firstChild, nestedBody)
+    parent.removeChild(nestedBody)
+    nestedBody = elsByLocal(body, 'body')[0]
+  }
+
+  for (const tag of ['head', 'style', 'script', 'link', 'meta', 'title']) {
+    for (const el of elsByLocal(body, tag)) el.remove()
+  }
+}
+
 export async function getEpubChapterHtml(bookId: string, href: string): Promise<string> {
   const book = getBook(bookId)
   if (!book) return ''
@@ -460,7 +475,7 @@ export async function getEpubChapterHtml(bookId: string, href: string): Promise<
     const body = elsByLocal(doc, 'body')[0]
     if (!body) return ''
 
-    for (const s of elsByLocal(body, 'script')) s.remove()
+    sanitizeEpubBody(body)
 
     const imgs = [...elsByLocal(body, 'img'), ...elsByLocal(body, 'image')]
     for (const img of imgs) {
