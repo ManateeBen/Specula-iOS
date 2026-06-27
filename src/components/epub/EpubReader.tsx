@@ -191,6 +191,16 @@ function locateHighlight(
 // Unwrap all <mark> elements, keeping their text content (no full DOM reset).
 function stripMarks(el: HTMLElement): void {
   for (const mark of [...el.querySelectorAll('mark')]) {
+    if (mark.classList.contains('selection-preview')) continue
+    const parent = mark.parentNode
+    if (!parent) continue
+    while (mark.firstChild) parent.insertBefore(mark.firstChild, mark)
+    parent.removeChild(mark)
+  }
+}
+
+function stripSelectionPreview(el: HTMLElement): void {
+  for (const mark of [...el.querySelectorAll('mark.selection-preview')]) {
     const parent = mark.parentNode
     if (!parent) continue
     while (mark.firstChild) parent.insertBefore(mark.firstChild, mark)
@@ -302,9 +312,8 @@ export default function EpubReader({
   const [pageCount, setPageCount] = useState(1)
   const [pageWidth, setPageWidth] = useState(0)
   const [pageContentWidth, setPageContentWidth] = useState(0)
-  const [pageSlots, setPageSlots] = useState<number[]>([0])
+  const [pageHeight, setPageHeight] = useState(0)
   const [viewportVersion, setViewportVersion] = useState(0)
-  const pageGap = 80
 
   // Scroll fraction (0–1) to restore once the next chapter HTML is painted.
   // Seeded from saved progress for the very first chapter only.
@@ -313,6 +322,9 @@ export default function EpubReader({
   )
   const pendingRestoreRef = useRef<number | null>(restorePosRef.current)
   const touchStartRef = useRef<{ x: number; y: number } | null>(null)
+  const selectionFrameRef = useRef<number | null>(null)
+  const selectionClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const lastSelectionKeyRef = useRef('')
   // Debounce timer for persisting the intra-chapter scroll position.
   const scrollSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -432,7 +444,7 @@ export default function EpubReader({
       setPageCount(1)
       setPageIndex(0)
       setPageWidth(0)
-      setPageSlots([0])
+      setPageHeight(0)
       const restore = pendingRestoreRef.current
       pendingRestoreRef.current = null
       const max = container.scrollHeight - container.clientHeight
@@ -446,47 +458,11 @@ export default function EpubReader({
       if (!width) return
       setPageWidth(width)
       setPageContentWidth(contentWidth)
-      const stride = contentWidth + pageGap
-      const prevTransform = content.style.transform
-      const prevTransition = content.style.transition
-      content.style.transform = 'none'
-      content.style.transition = 'none'
-      const rawCount = Math.max(1, Math.ceil((content.scrollWidth + pageGap) / stride))
-      const contentRect = content.getBoundingClientRect()
-      const visibleColumns = new Set<number>()
-
-      const addRect = (rect: DOMRect) => {
-        if (rect.width <= 1 || rect.height <= 1) return
-        const x = rect.left - contentRect.left
-        const col = Math.round(x / stride)
-        if (col >= 0 && col < rawCount) visibleColumns.add(col)
-      }
-
-      const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT, {
-        acceptNode: (node) =>
-          node.textContent?.trim() ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT,
-      })
-      let textNode: Node | null
-      while ((textNode = walker.nextNode())) {
-        const range = document.createRange()
-        range.selectNodeContents(textNode)
-        for (const rect of Array.from(range.getClientRects())) addRect(rect)
-        range.detach()
-      }
-      for (const media of Array.from(content.querySelectorAll('img, svg, table, pre'))) {
-        addRect(media.getBoundingClientRect())
-      }
-
-      const slots = [...visibleColumns].sort((a, b) => a - b)
-      if (slots.length === 0) {
-        for (let i = 0; i < rawCount; i++) slots.push(i)
-      }
-      content.style.transform = prevTransform
-      content.style.transition = prevTransition
-      const count = slots.length
+      const height = Math.max(360, container.clientHeight - 72)
+      setPageHeight(height)
+      const count = Math.max(1, Math.ceil(content.scrollHeight / height))
       const restore = pendingRestoreRef.current
       pendingRestoreRef.current = null
-      setPageSlots(slots)
       setPageCount(count)
       setPageIndex((prev) => {
         if (restore != null) return Math.min(count - 1, Math.max(0, Math.round(restore * (count - 1))))
@@ -512,10 +488,8 @@ export default function EpubReader({
     const target = (range?.startContainer.parentElement as HTMLElement) || null
     if (target) {
       if (isPaged && pageWidth) {
-        const pageStride = (pageContentWidth || pageWidth) + pageGap
-        const targetPage = Math.floor(target.offsetLeft / pageStride)
-        const slotIndex = pageSlots.findIndex((slot) => slot >= targetPage)
-        setPageIndex(Math.min(Math.max(0, slotIndex >= 0 ? slotIndex : pageCount - 1), pageCount - 1))
+        const targetPage = pageHeight ? Math.floor(target.offsetTop / pageHeight) : 0
+        setPageIndex(Math.min(Math.max(0, targetPage), pageCount - 1))
       } else {
         target.scrollIntoView({ behavior: 'smooth', block: 'center' })
       }
@@ -523,7 +497,7 @@ export default function EpubReader({
       window.setTimeout(() => target.classList.remove('deeplink-flash'), 2400)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [html, highlightExcerpt, loading, chapterHighlights, isPaged, pageCount, pageSlots, pageWidth])
+  }, [html, highlightExcerpt, loading, chapterHighlights, isPaged, pageCount, pageHeight, pageWidth])
 
   // Persist intra-chapter scroll position as a fraction (debounced).
   const handleScroll = () => {
@@ -552,6 +526,7 @@ export default function EpubReader({
   }
   const turnPage = (delta: 1 | -1) => {
     window.getSelection()?.removeAllRanges()
+    if (contentRef.current) stripSelectionPreview(contentRef.current)
     setSelToolbar(null)
     if (!isPaged) {
       if (delta > 0) goNext()
@@ -570,25 +545,36 @@ export default function EpubReader({
 
   // Listen for text selection changes (works on both desktop mouse and iOS touch).
   useEffect(() => {
-    const handleSelectionChange = () => {
+    const updateSelectionToolbar = () => {
+      selectionFrameRef.current = null
       const sel = window.getSelection()
       if (!sel || sel.isCollapsed) {
+        if (contentRef.current?.querySelector('mark.selection-preview') && selInfoRef.current) return
+        if (contentRef.current) stripSelectionPreview(contentRef.current)
+        lastSelectionKeyRef.current = ''
         setSelToolbar(null)
         return
       }
       const text = sel.toString().trim()
       if (!text) {
+        if (contentRef.current?.querySelector('mark.selection-preview') && selInfoRef.current) return
+        if (contentRef.current) stripSelectionPreview(contentRef.current)
+        lastSelectionKeyRef.current = ''
         setSelToolbar(null)
         return
       }
       // Only respond to selections inside our content area
       const content = contentRef.current
       if (!content || !content.contains(sel.anchorNode)) {
+        lastSelectionKeyRef.current = ''
         setSelToolbar(null)
         return
       }
       const range = sel.getRangeAt(0)
       const rect = range.getBoundingClientRect()
+      const selectionKey = `${text}|${Math.round(rect.left)}|${Math.round(rect.top)}|${Math.round(rect.width)}|${Math.round(rect.height)}`
+      if (selectionKey === lastSelectionKeyRef.current) return
+      lastSelectionKeyRef.current = selectionKey
       const toolbarWidth = Math.min(window.innerWidth - 24, 336)
       const toolbarHeight = 116
       const contextEl = range.commonAncestorContainer.parentElement
@@ -604,9 +590,28 @@ export default function EpubReader({
           window.innerWidth - toolbarWidth - 12
         ),
       })
+
+      if (selectionClearTimerRef.current) clearTimeout(selectionClearTimerRef.current)
+      selectionClearTimerRef.current = setTimeout(() => {
+        const activeSelection = window.getSelection()
+        const activeText = activeSelection?.toString().trim()
+        if (!activeSelection || !activeText || activeText !== text) return
+        stripSelectionPreview(content)
+        markRange(range.cloneRange(), 'selection-preview')
+        activeSelection.removeAllRanges()
+      }, 120)
+    }
+
+    const handleSelectionChange = () => {
+      if (selectionFrameRef.current != null) return
+      selectionFrameRef.current = requestAnimationFrame(updateSelectionToolbar)
     }
     document.addEventListener('selectionchange', handleSelectionChange)
-    return () => document.removeEventListener('selectionchange', handleSelectionChange)
+    return () => {
+      document.removeEventListener('selectionchange', handleSelectionChange)
+      if (selectionFrameRef.current != null) cancelAnimationFrame(selectionFrameRef.current)
+      if (selectionClearTimerRef.current) clearTimeout(selectionClearTimerRef.current)
+    }
   }, [])
 
   useEffect(() => {
@@ -645,6 +650,7 @@ export default function EpubReader({
     }
     setSelToolbar(null)
     window.getSelection()?.removeAllRanges()
+    if (contentRef.current) stripSelectionPreview(contentRef.current)
   }
 
   const handleManualHighlight = async (color: HighlightColor = DEFAULT_HIGHLIGHT_COLOR) => {
@@ -652,6 +658,7 @@ export default function EpubReader({
     if (!info) return
     window.getSelection()?.removeAllRanges()
     setSelToolbar(null)
+    if (contentRef.current) stripSelectionPreview(contentRef.current)
     try {
       await window.specula.highlights.create({
         bookId,
@@ -673,6 +680,7 @@ export default function EpubReader({
   const handleExplainSelection = () => {
     const info = selInfoRef.current
     setSelToolbar(null)
+    if (contentRef.current) stripSelectionPreview(contentRef.current)
     if (info) onTextSelect(info.text, info.context, info.rect)
   }
 
@@ -738,13 +746,9 @@ export default function EpubReader({
               isPaged
                 ? {
                     boxSizing: 'border-box',
-                    columnGap: pageGap,
-                    columnWidth: pageContentWidth || undefined,
-                    height: '100%',
                     marginLeft: pageWidth > pageContentWidth ? (pageWidth - pageContentWidth) / 2 : 0,
-                    paddingLeft: 0,
-                    paddingRight: 0,
-                    transform: `translate3d(-${(pageSlots[pageIndex] ?? pageIndex) * ((pageContentWidth || pageWidth) + pageGap)}px, 0, 0)`,
+                    maxWidth: pageContentWidth || undefined,
+                    transform: `translate3d(0, -${pageIndex * (pageHeight || 0)}px, 0)`,
                     transition: 'transform 180ms ease-out',
                     width: pageContentWidth || undefined,
                   }

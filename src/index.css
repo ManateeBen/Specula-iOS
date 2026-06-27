@@ -62,8 +62,8 @@
   -webkit-touch-callout: none;
 }
 .epub-content--paged {
-  column-fill: auto;
   contain: layout paint;
+  margin-right: auto;
   overflow: visible;
   touch-action: pan-y pinch-zoom;
   will-change: transform;
@@ -241,6 +241,15 @@
 }
 .dark .epub-content mark.user-highlight-green {
   background: rgba(22, 101, 52, 0.45);
+}
+
+.epub-content mark.selection-preview {
+  background: rgba(96, 165, 250, 0.32);
+  border-radius: 3px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  color: inherit;
+  padding: 1px 2px;
 }
 
 .selection-menu {
