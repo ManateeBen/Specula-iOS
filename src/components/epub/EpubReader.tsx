@@ -1,16 +1,16 @@
 import { useEffect, useRef, useState, useMemo } from 'react'
-import { Check, Copy, Highlighter, Sparkles } from 'lucide-react'
+import { Highlighter, Sparkles } from 'lucide-react'
 import type { Chapter, Highlight, ImageSelectionInfo } from '../../types'
 import { buildWeakPointIndexMap, getWeakPointColorSlot } from '../../utils/weakPointStyle'
 
 type HighlightColor = 'yellow' | 'pink' | 'purple' | 'blue' | 'green'
 
-const HIGHLIGHT_COLORS: { key: HighlightColor; className: string; swatch: string }[] = [
-  { key: 'yellow', className: 'user-highlight-yellow', swatch: '#f4c96b' },
-  { key: 'pink', className: 'user-highlight-pink', swatch: '#fb7185' },
-  { key: 'purple', className: 'user-highlight-purple', swatch: '#a78bfa' },
-  { key: 'blue', className: 'user-highlight-blue', swatch: '#60a5fa' },
-  { key: 'green', className: 'user-highlight-green', swatch: '#4ade80' },
+const HIGHLIGHT_COLORS: { key: HighlightColor; className: string }[] = [
+  { key: 'yellow', className: 'user-highlight-yellow' },
+  { key: 'pink', className: 'user-highlight-pink' },
+  { key: 'purple', className: 'user-highlight-purple' },
+  { key: 'blue', className: 'user-highlight-blue' },
+  { key: 'green', className: 'user-highlight-green' },
 ]
 
 const DEFAULT_HIGHLIGHT_COLOR: HighlightColor = 'yellow'
@@ -191,16 +191,6 @@ function locateHighlight(
 // Unwrap all <mark> elements, keeping their text content (no full DOM reset).
 function stripMarks(el: HTMLElement): void {
   for (const mark of [...el.querySelectorAll('mark')]) {
-    if (mark.classList.contains('selection-preview')) continue
-    const parent = mark.parentNode
-    if (!parent) continue
-    while (mark.firstChild) parent.insertBefore(mark.firstChild, mark)
-    parent.removeChild(mark)
-  }
-}
-
-function stripSelectionPreview(el: HTMLElement): void {
-  for (const mark of [...el.querySelectorAll('mark.selection-preview')]) {
     const parent = mark.parentNode
     if (!parent) continue
     while (mark.firstChild) parent.insertBefore(mark.firstChild, mark)
@@ -307,12 +297,7 @@ export default function EpubReader({
   const prevChapterIdRef = useRef<string | null>(null)
   const [html, setHtml] = useState('')
   const [loading, setLoading] = useState(true)
-  const [isPaged, setIsPaged] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768)
-  const [pageIndex, setPageIndex] = useState(0)
-  const [pageCount, setPageCount] = useState(1)
-  const [pageWidth, setPageWidth] = useState(0)
-  const [pageContentWidth, setPageContentWidth] = useState(0)
-  const [pageHeight, setPageHeight] = useState(0)
+  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768)
   const [viewportVersion, setViewportVersion] = useState(0)
 
   // Scroll fraction (0–1) to restore once the next chapter HTML is painted.
@@ -321,9 +306,7 @@ export default function EpubReader({
     initialPosition && !Number.isNaN(parseFloat(initialPosition)) ? parseFloat(initialPosition) : null
   )
   const pendingRestoreRef = useRef<number | null>(restorePosRef.current)
-  const touchStartRef = useRef<{ x: number; y: number } | null>(null)
   const selectionFrameRef = useRef<number | null>(null)
-  const selectionClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastSelectionKeyRef = useRef('')
   // Debounce timer for persisting the intra-chapter scroll position.
   const scrollSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -346,13 +329,13 @@ export default function EpubReader({
   )
 
   useEffect(() => {
-    const updatePagedMode = () => {
-      setIsPaged(window.innerWidth < 768)
+    const updateMobileMode = () => {
+      setIsMobile(window.innerWidth < 768)
       setViewportVersion((version) => version + 1)
     }
-    updatePagedMode()
-    window.addEventListener('resize', updatePagedMode)
-    return () => window.removeEventListener('resize', updatePagedMode)
+    updateMobileMode()
+    window.addEventListener('resize', updateMobileMode)
+    return () => window.removeEventListener('resize', updateMobileMode)
   }, [])
 
   useEffect(() => {
@@ -378,7 +361,7 @@ export default function EpubReader({
       // Restore scroll after the new content has been laid out.
       requestAnimationFrame(() => {
         const el = scrollRef.current
-        if (!el || isPaged) return
+        if (!el) return
         const max = el.scrollHeight - el.clientHeight
         el.scrollTop = restore != null && max > 0 ? max * restore : 0
       })
@@ -437,47 +420,14 @@ export default function EpubReader({
   useEffect(() => {
     if (loading) return
     const container = scrollRef.current
-    const content = contentRef.current
-    if (!container || !content) return
-
-    if (!isPaged) {
-      setPageCount(1)
-      setPageIndex(0)
-      setPageWidth(0)
-      setPageHeight(0)
+    if (!container) return
+    requestAnimationFrame(() => {
       const restore = pendingRestoreRef.current
       pendingRestoreRef.current = null
       const max = container.scrollHeight - container.clientHeight
       if (restore != null && max > 0) container.scrollTop = max * restore
-      return
-    }
-
-    const measure = () => {
-      const width = container.clientWidth
-      const contentWidth = Math.max(280, width - 64)
-      if (!width) return
-      setPageWidth(width)
-      setPageContentWidth(contentWidth)
-      const height = Math.max(360, container.clientHeight - 72)
-      setPageHeight(height)
-      const count = Math.max(1, Math.ceil(content.scrollHeight / height))
-      const restore = pendingRestoreRef.current
-      pendingRestoreRef.current = null
-      setPageCount(count)
-      setPageIndex((prev) => {
-        if (restore != null) return Math.min(count - 1, Math.max(0, Math.round(restore * (count - 1))))
-        return Math.min(prev, count - 1)
-      })
-    }
-
-    requestAnimationFrame(() => requestAnimationFrame(measure))
-  }, [html, chapterHighlights, loading, isPaged, viewportVersion])
-
-  useEffect(() => {
-    if (!isPaged || loading) return
-    const fraction = pageCount > 1 ? pageIndex / (pageCount - 1) : 0
-    onProgress(currentChapterId, String(fraction))
-  }, [currentChapterId, isPaged, loading, onProgress, pageCount, pageIndex])
+    })
+  }, [html, chapterHighlights, loading, viewportVersion])
 
   // Deep link: scroll to (and briefly flash) the excerpt once the chapter renders.
   useEffect(() => {
@@ -487,22 +437,17 @@ export default function EpubReader({
     const range = locateExcerpt(el, highlightExcerpt)
     const target = (range?.startContainer.parentElement as HTMLElement) || null
     if (target) {
-      if (isPaged && pageWidth) {
-        const targetPage = pageHeight ? Math.floor(target.offsetTop / pageHeight) : 0
-        setPageIndex(Math.min(Math.max(0, targetPage), pageCount - 1))
-      } else {
-        target.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      }
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' })
       target.classList.add('deeplink-flash')
       window.setTimeout(() => target.classList.remove('deeplink-flash'), 2400)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [html, highlightExcerpt, loading, chapterHighlights, isPaged, pageCount, pageHeight, pageWidth])
+  }, [html, highlightExcerpt, loading, chapterHighlights])
 
   // Persist intra-chapter scroll position as a fraction (debounced).
   const handleScroll = () => {
     const el = scrollRef.current
-    if (!el || loading || isPaged) return
+    if (!el || loading) return
     const max = el.scrollHeight - el.clientHeight
     const fraction = max > 0 ? el.scrollTop / max : 0
     if (scrollSaveTimer.current) clearTimeout(scrollSaveTimer.current)
@@ -518,52 +463,39 @@ export default function EpubReader({
   }, [])
 
   const idx = chapters.findIndex((c) => c.id === currentChapterId)
+  const clearSelectionState = () => {
+    window.getSelection()?.removeAllRanges()
+    setSelToolbar(null)
+    lastSelectionKeyRef.current = ''
+    selRangeRef.current = null
+    selInfoRef.current = null
+  }
   const goPrev = () => {
+    clearSelectionState()
     if (idx > 0) onChapterChange(chapters[idx - 1].id)
   }
   const goNext = () => {
+    clearSelectionState()
     if (idx >= 0 && idx < chapters.length - 1) onChapterChange(chapters[idx + 1].id)
   }
-  const turnPage = (delta: 1 | -1) => {
-    window.getSelection()?.removeAllRanges()
-    if (contentRef.current) stripSelectionPreview(contentRef.current)
-    setSelToolbar(null)
-    if (!isPaged) {
-      if (delta > 0) goNext()
-      else goPrev()
-      return
-    }
-    if (delta > 0) {
-      if (pageIndex < pageCount - 1) setPageIndex((p) => Math.min(pageCount - 1, p + 1))
-      else goNext()
-    } else if (pageIndex > 0) {
-      setPageIndex((p) => Math.max(0, p - 1))
-    } else {
-      goPrev()
-    }
-  }
 
-  // Listen for text selection changes (works on both desktop mouse and iOS touch).
+  // Listen for text selection changes. Keep this intentionally small: the
+  // native selection stays alive, and our toolbar only offers the app actions.
   useEffect(() => {
     const updateSelectionToolbar = () => {
       selectionFrameRef.current = null
       const sel = window.getSelection()
       if (!sel || sel.isCollapsed) {
-        if (contentRef.current?.querySelector('mark.selection-preview') && selInfoRef.current) return
-        if (contentRef.current) stripSelectionPreview(contentRef.current)
         lastSelectionKeyRef.current = ''
         setSelToolbar(null)
         return
       }
       const text = sel.toString().trim()
       if (!text) {
-        if (contentRef.current?.querySelector('mark.selection-preview') && selInfoRef.current) return
-        if (contentRef.current) stripSelectionPreview(contentRef.current)
         lastSelectionKeyRef.current = ''
         setSelToolbar(null)
         return
       }
-      // Only respond to selections inside our content area
       const content = contentRef.current
       if (!content || !content.contains(sel.anchorNode)) {
         lastSelectionKeyRef.current = ''
@@ -572,34 +504,30 @@ export default function EpubReader({
       }
       const range = sel.getRangeAt(0)
       const rect = range.getBoundingClientRect()
-      const selectionKey = `${text}|${Math.round(rect.left)}|${Math.round(rect.top)}|${Math.round(rect.width)}|${Math.round(rect.height)}`
+      const visibleRect = rect.width || rect.height ? rect : range.getClientRects()[0]
+      if (!visibleRect) return
+      const selectionKey = `${text}|${Math.round(visibleRect.left)}|${Math.round(
+        visibleRect.top
+      )}|${Math.round(visibleRect.width)}|${Math.round(visibleRect.height)}`
       if (selectionKey === lastSelectionKeyRef.current) return
       lastSelectionKeyRef.current = selectionKey
-      const toolbarWidth = Math.min(window.innerWidth - 24, 336)
-      const toolbarHeight = 116
+
+      const toolbarWidth = 164
+      const toolbarHeight = 44
       const contextEl = range.commonAncestorContainer.parentElement
       const context = contextEl?.textContent?.slice(0, 500) || ''
       selRangeRef.current = range.cloneRange()
-      selInfoRef.current = { text, context, rect }
-      const top = rect.top - toolbarHeight - 12
-      const fallbackTop = rect.bottom + 12
+      selInfoRef.current = { text, context, rect: visibleRect }
+
+      const top = visibleRect.top - toolbarHeight - 10
+      const fallbackTop = visibleRect.bottom + 10
       setSelToolbar({
         top: top > 8 ? top : Math.min(fallbackTop, window.innerHeight - toolbarHeight - 8),
         left: Math.min(
-          Math.max(12, rect.left + rect.width / 2 - toolbarWidth / 2),
+          Math.max(12, visibleRect.left + visibleRect.width / 2 - toolbarWidth / 2),
           window.innerWidth - toolbarWidth - 12
         ),
       })
-
-      if (selectionClearTimerRef.current) clearTimeout(selectionClearTimerRef.current)
-      selectionClearTimerRef.current = setTimeout(() => {
-        const activeSelection = window.getSelection()
-        const activeText = activeSelection?.toString().trim()
-        if (!activeSelection || !activeText || activeText !== text) return
-        stripSelectionPreview(content)
-        markRange(range.cloneRange(), 'selection-preview')
-        activeSelection.removeAllRanges()
-      }, 120)
     }
 
     const handleSelectionChange = () => {
@@ -610,7 +538,6 @@ export default function EpubReader({
     return () => {
       document.removeEventListener('selectionchange', handleSelectionChange)
       if (selectionFrameRef.current != null) cancelAnimationFrame(selectionFrameRef.current)
-      if (selectionClearTimerRef.current) clearTimeout(selectionClearTimerRef.current)
     }
   }, [])
 
@@ -640,25 +567,10 @@ export default function EpubReader({
     }
   }, [])
 
-  const handleCopySelection = async () => {
-    const info = selInfoRef.current
-    if (!info) return
-    try {
-      await navigator.clipboard?.writeText(info.text)
-    } catch {
-      // Clipboard permission can be unavailable inside some WebViews.
-    }
-    setSelToolbar(null)
-    window.getSelection()?.removeAllRanges()
-    if (contentRef.current) stripSelectionPreview(contentRef.current)
-  }
-
   const handleManualHighlight = async (color: HighlightColor = DEFAULT_HIGHLIGHT_COLOR) => {
     const info = selInfoRef.current
     if (!info) return
-    window.getSelection()?.removeAllRanges()
-    setSelToolbar(null)
-    if (contentRef.current) stripSelectionPreview(contentRef.current)
+    clearSelectionState()
     try {
       await window.specula.highlights.create({
         bookId,
@@ -679,19 +591,18 @@ export default function EpubReader({
 
   const handleExplainSelection = () => {
     const info = selInfoRef.current
-    setSelToolbar(null)
-    if (contentRef.current) stripSelectionPreview(contentRef.current)
+    clearSelectionState()
     if (info) onTextSelect(info.text, info.context, info.rect)
   }
 
   // Click an inlined image to ask the vision model to explain it.
   const handleClick = (e: React.MouseEvent) => {
-    if (!onImageSelect) return
     const target = e.target as HTMLElement
     if (target.tagName !== 'IMG') {
-      if (isPaged && !window.getSelection()?.toString()) onToggleChrome?.()
+      if (!window.getSelection()?.toString()) onToggleChrome?.()
       return
     }
+    if (!onImageSelect) return
     const src = target.getAttribute('src') || ''
     if (!src.startsWith('data:image/')) return
     const alt = target.getAttribute('alt') || ''
@@ -708,52 +619,19 @@ export default function EpubReader({
     })
   }
 
-  const handleTouchStart = (e: React.TouchEvent) => {
-    if (!isPaged || e.touches.length !== 1 || window.getSelection()?.toString()) return
-    const touch = e.touches[0]
-    touchStartRef.current = { x: touch.clientX, y: touch.clientY }
-  }
-
-  const handleTouchEnd = (e: React.TouchEvent) => {
-    if (!isPaged || !touchStartRef.current) return
-    const start = touchStartRef.current
-    touchStartRef.current = null
-    const touch = e.changedTouches[0]
-    const dx = touch.clientX - start.x
-    const dy = touch.clientY - start.y
-    if (Math.abs(dx) < 48 || Math.abs(dx) < Math.abs(dy) * 1.2) return
-    turnPage(dx < 0 ? 1 : -1)
-  }
-
   return (
     <div className="relative flex h-full flex-col">
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        onTouchStart={handleTouchStart}
-        onTouchEnd={handleTouchEnd}
-        className={`epub-container flex-1 ${isPaged ? 'overflow-hidden' : 'overflow-y-auto'}`}
+        className="epub-container flex-1 overflow-y-auto"
       >
         {loading ? (
           <div className="p-10 text-center text-sm text-gray-500">加载章节中...</div>
         ) : (
           <div
             ref={contentRef}
-            className={`epub-content epub-content--images px-8 py-8 ${
-              isPaged ? 'epub-content--paged max-w-none' : 'mx-auto max-w-3xl'
-            }`}
-            style={
-              isPaged
-                ? {
-                    boxSizing: 'border-box',
-                    marginLeft: pageWidth > pageContentWidth ? (pageWidth - pageContentWidth) / 2 : 0,
-                    maxWidth: pageContentWidth || undefined,
-                    transform: `translate3d(0, -${pageIndex * (pageHeight || 0)}px, 0)`,
-                    transition: 'transform 180ms ease-out',
-                    width: pageContentWidth || undefined,
-                  }
-                : undefined
-            }
+            className="epub-content epub-content--images mx-auto max-w-3xl px-8 py-8"
             onClick={handleClick}
             onContextMenu={(event) => event.preventDefault()}
           />
@@ -763,47 +641,11 @@ export default function EpubReader({
       {selToolbar && (
         <div
           style={{ position: 'fixed', top: selToolbar.top, left: selToolbar.left, zIndex: 1000 }}
-          className="selection-menu w-[min(calc(100vw-24px),336px)]"
+          className="selection-menu selection-menu--compact"
           onMouseDown={(e) => e.preventDefault()}
           onTouchStart={(e) => e.preventDefault()}
         >
-          <div className="selection-menu__styles">
-            <button
-              type="button"
-              className="selection-menu__style-button selection-menu__style-button--active"
-              onClick={() => handleManualHighlight(DEFAULT_HIGHLIGHT_COLOR)}
-              aria-label="默认高亮"
-            >
-              <span>A</span>
-            </button>
-            <button
-              type="button"
-              className="selection-menu__style-button"
-              onClick={() => handleManualHighlight(DEFAULT_HIGHLIGHT_COLOR)}
-              aria-label="下划线高亮"
-            >
-              <span className="border-b-2 border-white/80">A</span>
-            </button>
-            <div className="selection-menu__colors">
-              {HIGHLIGHT_COLORS.map((color) => (
-                <button
-                  key={color.key}
-                  type="button"
-                  className="selection-menu__color"
-                  style={{ backgroundColor: color.swatch }}
-                  onClick={() => handleManualHighlight(color.key)}
-                  aria-label={`${color.key} 高亮`}
-                >
-                  {color.key === DEFAULT_HIGHLIGHT_COLOR && <Check className="h-4 w-4 text-gray-900" />}
-                </button>
-              ))}
-            </div>
-          </div>
           <div className="selection-menu__actions">
-            <button type="button" className="selection-menu__action" onClick={handleCopySelection}>
-              <Copy className="h-5 w-5" />
-              <span>复制</span>
-            </button>
             <button type="button" className="selection-menu__action" onClick={() => handleManualHighlight()}>
               <Highlighter className="h-5 w-5" />
               <span>高亮</span>
@@ -818,30 +660,28 @@ export default function EpubReader({
 
       <div
         className={`reader-page-bar ${
-          isPaged
-            ? `absolute inset-x-0 bottom-0 z-20 ${chromeVisible ? 'translate-y-0' : 'translate-y-full'}`
-            : ''
+          isMobile ? `absolute inset-x-0 bottom-0 z-20 ${chromeVisible ? 'translate-y-0' : 'translate-y-full'}` : ''
         }`}
-        style={isPaged ? { paddingBottom: 'calc(max(env(safe-area-inset-bottom), 18px) + 0.5rem)' } : undefined}
+        style={isMobile ? { paddingBottom: 'calc(max(env(safe-area-inset-bottom), 18px) + 0.5rem)' } : undefined}
       >
         <button
-          onClick={() => turnPage(-1)}
-          disabled={isPaged ? idx <= 0 && pageIndex <= 0 : idx <= 0}
+          onClick={goPrev}
+          disabled={idx <= 0}
           className="reader-page-button"
-          aria-label={isPaged ? '上一页' : '上一章'}
+          aria-label="上一章"
         >
-          ‹
+          上一章
         </button>
         <span className="reader-page-label">
-          {isPaged ? `${pageIndex + 1}/${pageCount} · ${chapters[idx]?.title || ''}` : chapters[idx]?.title || ''}
+          {chapters[idx]?.title || ''}
         </span>
         <button
-          onClick={() => turnPage(1)}
-          disabled={isPaged ? idx >= chapters.length - 1 && pageIndex >= pageCount - 1 : idx >= chapters.length - 1}
+          onClick={goNext}
+          disabled={idx >= chapters.length - 1}
           className="reader-page-button"
-          aria-label={isPaged ? '下一页' : '下一章'}
+          aria-label="下一章"
         >
-          ›
+          下一章
         </button>
       </div>
     </div>
