@@ -216,8 +216,8 @@ export default function Reader() {
       )}
 
       <div className="flex flex-1 flex-col overflow-hidden">
-        <div className="flex shrink-0 items-center justify-between border-b border-gray-200 bg-white px-4 py-2 dark:border-gray-700 dark:bg-gray-900">
-          <div className="flex items-center gap-3">
+        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-gray-200 bg-white px-3 py-2 dark:border-gray-700 dark:bg-gray-900 sm:px-4">
+          <div className="flex min-w-0 items-center gap-2 sm:gap-3">
             <button
               onClick={() => setTocOpen(!tocOpen)}
               className="rounded p-1 hover:bg-gray-100 dark:hover:bg-gray-800"
@@ -228,26 +228,26 @@ export default function Reader() {
             <Link to="/" className="rounded p-1 hover:bg-gray-100 dark:hover:bg-gray-800">
               <ArrowLeft className="h-5 w-5" />
             </Link>
-            <div>
-              <h2 className="text-sm font-medium">{book.title}</h2>
+            <div className="min-w-0">
+              <h2 className="truncate text-sm font-medium">{book.title}</h2>
               {currentChapter && (
-                <p className="text-xs text-gray-500">{currentChapter.title}</p>
+                <p className="truncate text-xs text-gray-500">{currentChapter.title}</p>
               )}
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
             {activeChapterId && (
               <>
                 <Link
                   to={`/quiz/${bookId}/${activeChapterId}`}
-                  className="btn-secondary py-1.5 text-xs"
+                  className="btn-secondary min-h-10 px-2.5 py-1.5 text-[0px] sm:px-3 sm:text-xs"
                 >
                   <ClipboardList className="h-3.5 w-3.5" />
                   章节测验
                 </Link>
                 <Link
                   to={`/quiz-history/${bookId}/${activeChapterId}`}
-                  className="btn-secondary py-1.5 text-xs"
+                  className="btn-secondary min-h-10 px-2.5 py-1.5 text-[0px] sm:px-3 sm:text-xs"
                 >
                   <History className="h-3.5 w-3.5" />
                   历史

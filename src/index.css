@@ -53,6 +53,13 @@
   @apply text-[15px] leading-7 text-gray-900 dark:text-gray-100;
   -webkit-touch-callout: none;
 }
+.epub-content--paged {
+  column-fill: auto;
+  contain: layout paint;
+  overflow: visible;
+  touch-action: pan-y;
+  will-change: transform;
+}
 .epub-content img,
 .epub-content svg {
   max-width: 100%;

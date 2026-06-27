@@ -79,19 +79,41 @@ export default function HighlightPopover({
       aiExplanation: explanation || null,
       teachingMode: mode,
       source: 'user',
+      weakPointTopic: null,
+      weakPointIndex: null,
     })
     onSaved()
     onClose()
   }
 
-  const style: React.CSSProperties = {
-    position: 'fixed',
-    top: Math.min(selection.rect.bottom + 8, window.innerHeight - 400),
-    left: Math.min(selection.rect.left, window.innerWidth - 380),
-    zIndex: 1000,
-    width: 360,
-    maxHeight: 380,
-  }
+  const isNarrow = window.innerWidth < 640
+  const popoverWidth = Math.min(380, window.innerWidth - 24)
+  const popoverMaxHeight = Math.min(520, window.innerHeight - 32)
+  const top = Math.min(
+    Math.max(16, selection.rect.bottom + 8),
+    Math.max(16, window.innerHeight - popoverMaxHeight - 16)
+  )
+  const left = Math.min(
+    Math.max(12, selection.rect.left),
+    Math.max(12, window.innerWidth - popoverWidth - 12)
+  )
+  const style: React.CSSProperties = isNarrow
+    ? {
+        position: 'fixed',
+        left: 12,
+        right: 12,
+        bottom: 'calc(env(safe-area-inset-bottom) + 72px)',
+        zIndex: 1000,
+        maxHeight: 'min(68vh, calc(100vh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 132px))',
+      }
+    : {
+        position: 'fixed',
+        top,
+        left,
+        zIndex: 1000,
+        width: popoverWidth,
+        maxHeight: popoverMaxHeight,
+      }
 
   return (
     <div style={style} className="card flex flex-col overflow-hidden shadow-lg">
@@ -102,7 +124,7 @@ export default function HighlightPopover({
         </button>
       </div>
 
-      <div className="space-y-3 overflow-y-auto p-3">
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
         <blockquote className="border-l-2 border-yellow-400 pl-2 text-xs italic text-gray-600 dark:text-gray-400">
           {selection.text.slice(0, 120)}
           {selection.text.length > 120 ? '...' : ''}

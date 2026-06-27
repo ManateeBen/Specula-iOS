@@ -153,8 +153,7 @@ function locateExcerpt(root: HTMLElement, excerpt: string): Range | null {
 
 function locateHighlight(
   root: HTMLElement,
-  excerpt: string,
-  source: 'user' | 'quiz'
+  excerpt: string
 ): Range | null {
   const exact = locateExactExcerpt(root, excerpt)
   if (exact) return exact
@@ -253,12 +252,20 @@ export default function EpubReader({
   const prevChapterIdRef = useRef<string | null>(null)
   const [html, setHtml] = useState('')
   const [loading, setLoading] = useState(true)
+  const [isPaged, setIsPaged] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768)
+  const [pageIndex, setPageIndex] = useState(0)
+  const [pageCount, setPageCount] = useState(1)
+  const [pageWidth, setPageWidth] = useState(0)
+  const [viewportVersion, setViewportVersion] = useState(0)
+  const pageGap = 24
 
   // Scroll fraction (0–1) to restore once the next chapter HTML is painted.
   // Seeded from saved progress for the very first chapter only.
   const restorePosRef = useRef<number | null>(
     initialPosition && !Number.isNaN(parseFloat(initialPosition)) ? parseFloat(initialPosition) : null
   )
+  const pendingRestoreRef = useRef<number | null>(restorePosRef.current)
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null)
   // Debounce timer for persisting the intra-chapter scroll position.
   const scrollSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -280,6 +287,16 @@ export default function EpubReader({
   )
 
   useEffect(() => {
+    const updatePagedMode = () => {
+      setIsPaged(window.innerWidth < 768)
+      setViewportVersion((version) => version + 1)
+    }
+    updatePagedMode()
+    window.addEventListener('resize', updatePagedMode)
+    return () => window.removeEventListener('resize', updatePagedMode)
+  }, [])
+
+  useEffect(() => {
     if (currentChapterId && prevChapterIdRef.current && prevChapterIdRef.current !== currentChapterId) {
       restorePosRef.current = 0
     }
@@ -296,12 +313,13 @@ export default function EpubReader({
       if (cancelled) return
       const restore = restorePosRef.current
       restorePosRef.current = null
+      pendingRestoreRef.current = restore
       setHtml(h || '<p style="opacity:.6">本章无可显示内容</p>')
       setLoading(false)
       // Restore scroll after the new content has been laid out.
       requestAnimationFrame(() => {
         const el = scrollRef.current
-        if (!el) return
+        if (!el || isPaged) return
         const max = el.scrollHeight - el.clientHeight
         el.scrollTop = restore != null && max > 0 ? max * restore : 0
       })
@@ -331,7 +349,7 @@ export default function EpubReader({
     const unlocated: string[] = []
     const wpIndexMap = buildWeakPointIndexMap(chapterHighlights)
     for (const h of chapterHighlights) {
-      const range = locateHighlight(el, h.selectedText, h.source)
+      const range = locateHighlight(el, h.selectedText)
       const wpIndex = h.source === 'quiz' ? wpIndexMap.get(h.id) : undefined
       const ok = range
         ? h.source === 'quiz'
@@ -348,6 +366,46 @@ export default function EpubReader({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [html, chapterHighlights, loading])
 
+  useEffect(() => {
+    if (loading) return
+    const container = scrollRef.current
+    const content = contentRef.current
+    if (!container || !content) return
+
+    if (!isPaged) {
+      setPageCount(1)
+      setPageIndex(0)
+      setPageWidth(0)
+      const restore = pendingRestoreRef.current
+      pendingRestoreRef.current = null
+      const max = container.scrollHeight - container.clientHeight
+      if (restore != null && max > 0) container.scrollTop = max * restore
+      return
+    }
+
+    const measure = () => {
+      const width = container.clientWidth
+      if (!width) return
+      setPageWidth(width)
+      const count = Math.max(1, Math.ceil((content.scrollWidth + pageGap) / (width + pageGap)))
+      const restore = pendingRestoreRef.current
+      pendingRestoreRef.current = null
+      setPageCount(count)
+      setPageIndex((prev) => {
+        if (restore != null) return Math.min(count - 1, Math.max(0, Math.round(restore * (count - 1))))
+        return Math.min(prev, count - 1)
+      })
+    }
+
+    requestAnimationFrame(() => requestAnimationFrame(measure))
+  }, [html, chapterHighlights, loading, isPaged, viewportVersion])
+
+  useEffect(() => {
+    if (!isPaged || loading) return
+    const fraction = pageCount > 1 ? pageIndex / (pageCount - 1) : 0
+    onProgress(currentChapterId, String(fraction))
+  }, [currentChapterId, isPaged, loading, onProgress, pageCount, pageIndex])
+
   // Deep link: scroll to (and briefly flash) the excerpt once the chapter renders.
   useEffect(() => {
     if (!highlightExcerpt || loading) return
@@ -356,17 +414,22 @@ export default function EpubReader({
     const range = locateExcerpt(el, highlightExcerpt)
     const target = (range?.startContainer.parentElement as HTMLElement) || null
     if (target) {
-      target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      if (isPaged && pageWidth) {
+        const targetPage = Math.floor(target.offsetLeft / (pageWidth + pageGap))
+        setPageIndex(Math.min(Math.max(0, targetPage), pageCount - 1))
+      } else {
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }
       target.classList.add('deeplink-flash')
       window.setTimeout(() => target.classList.remove('deeplink-flash'), 2400)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [html, highlightExcerpt, loading, chapterHighlights])
+  }, [html, highlightExcerpt, loading, chapterHighlights, isPaged, pageCount, pageWidth])
 
   // Persist intra-chapter scroll position as a fraction (debounced).
   const handleScroll = () => {
     const el = scrollRef.current
-    if (!el || loading) return
+    if (!el || loading || isPaged) return
     const max = el.scrollHeight - el.clientHeight
     const fraction = max > 0 ? el.scrollTop / max : 0
     if (scrollSaveTimer.current) clearTimeout(scrollSaveTimer.current)
@@ -387,6 +450,23 @@ export default function EpubReader({
   }
   const goNext = () => {
     if (idx >= 0 && idx < chapters.length - 1) onChapterChange(chapters[idx + 1].id)
+  }
+  const turnPage = (delta: 1 | -1) => {
+    window.getSelection()?.removeAllRanges()
+    setSelToolbar(null)
+    if (!isPaged) {
+      if (delta > 0) goNext()
+      else goPrev()
+      return
+    }
+    if (delta > 0) {
+      if (pageIndex < pageCount - 1) setPageIndex((p) => Math.min(pageCount - 1, p + 1))
+      else goNext()
+    } else if (pageIndex > 0) {
+      setPageIndex((p) => Math.max(0, p - 1))
+    } else {
+      goPrev()
+    }
   }
 
   // Listen for text selection changes (works on both desktop mouse and iOS touch).
@@ -410,15 +490,30 @@ export default function EpubReader({
       }
       const range = sel.getRangeAt(0)
       const rect = range.getBoundingClientRect()
-      const scrollTop = scrollRef.current?.scrollTop || 0
+      const toolbarWidth = 184
+      const toolbarHeight = 40
       const contextEl = range.commonAncestorContainer.parentElement
       const context = contextEl?.textContent?.slice(0, 500) || ''
       selRangeRef.current = range.cloneRange()
       selInfoRef.current = { text, context, rect }
-      setSelToolbar({ top: rect.top - 44 + scrollTop, left: rect.left })
+      setSelToolbar({
+        top: Math.max(8, rect.top - toolbarHeight - 10),
+        left: Math.min(Math.max(8, rect.left), window.innerWidth - toolbarWidth - 8),
+      })
     }
     document.addEventListener('selectionchange', handleSelectionChange)
     return () => document.removeEventListener('selectionchange', handleSelectionChange)
+  }, [])
+
+  useEffect(() => {
+    const preventContentContextMenu = (event: Event) => {
+      const content = contentRef.current
+      if (content && event.target instanceof Node && content.contains(event.target)) {
+        event.preventDefault()
+      }
+    }
+    document.addEventListener('contextmenu', preventContentContextMenu)
+    return () => document.removeEventListener('contextmenu', preventContentContextMenu)
   }, [])
 
   const handleManualHighlight = async () => {
@@ -435,6 +530,8 @@ export default function EpubReader({
         aiExplanation: null,
         teachingMode: null,
         source: 'user',
+        weakPointTopic: null,
+        weakPointIndex: null,
       })
       onHighlightsChange?.()
     } catch {
@@ -469,15 +566,53 @@ export default function EpubReader({
     })
   }
 
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (!isPaged || e.touches.length !== 1 || window.getSelection()?.toString()) return
+    const touch = e.touches[0]
+    touchStartRef.current = { x: touch.clientX, y: touch.clientY }
+  }
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (!isPaged || !touchStartRef.current) return
+    const start = touchStartRef.current
+    touchStartRef.current = null
+    const touch = e.changedTouches[0]
+    const dx = touch.clientX - start.x
+    const dy = touch.clientY - start.y
+    if (Math.abs(dx) < 48 || Math.abs(dx) < Math.abs(dy) * 1.2) return
+    turnPage(dx < 0 ? 1 : -1)
+  }
+
   return (
     <div className="flex h-full flex-col">
-      <div ref={scrollRef} onScroll={handleScroll} className="epub-container flex-1 overflow-y-auto">
+      <div
+        ref={scrollRef}
+        onScroll={handleScroll}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+        className={`epub-container flex-1 ${isPaged ? 'overflow-hidden' : 'overflow-y-auto'}`}
+      >
         {loading ? (
           <div className="p-10 text-center text-sm text-gray-500">加载章节中...</div>
         ) : (
           <div
             ref={contentRef}
-            className="epub-content epub-content--images mx-auto max-w-3xl px-8 py-8"
+            className={`epub-content epub-content--images px-8 py-8 ${
+              isPaged ? 'epub-content--paged max-w-none' : 'mx-auto max-w-3xl'
+            }`}
+            style={
+              isPaged
+                ? {
+                    boxSizing: 'border-box',
+                    columnGap: pageGap,
+                    columnWidth: pageWidth || undefined,
+                    height: '100%',
+                    transform: `translate3d(-${pageIndex * (pageWidth + pageGap)}px, 0, 0)`,
+                    transition: 'transform 180ms ease-out',
+                    width: pageWidth || undefined,
+                  }
+                : undefined
+            }
             onClick={handleClick}
           />
         )}
@@ -509,17 +644,23 @@ export default function EpubReader({
       )}
 
       <div className="flex shrink-0 items-center justify-between border-t border-gray-200 bg-white px-4 py-2 dark:border-gray-700 dark:bg-gray-900">
-        <button onClick={goPrev} disabled={idx <= 0} className="btn-secondary py-1.5 text-xs">
+        <button
+          onClick={() => turnPage(-1)}
+          disabled={isPaged ? idx <= 0 && pageIndex <= 0 : idx <= 0}
+          className="btn-secondary py-1.5 text-[0px]"
+        >
+          <span className="text-xs">{isPaged ? '上一页' : '上一章'}</span>
           上一章
         </button>
         <span className="max-w-md truncate px-2 text-xs text-gray-500">
-          {chapters[idx]?.title || ''}
+          {isPaged ? `${pageIndex + 1}/${pageCount} · ${chapters[idx]?.title || ''}` : chapters[idx]?.title || ''}
         </span>
         <button
-          onClick={goNext}
-          disabled={idx >= chapters.length - 1}
-          className="btn-secondary py-1.5 text-xs"
+          onClick={() => turnPage(1)}
+          disabled={isPaged ? idx >= chapters.length - 1 && pageIndex >= pageCount - 1 : idx >= chapters.length - 1}
+          className="btn-secondary py-1.5 text-[0px]"
         >
+          <span className="text-xs">{isPaged ? '下一页' : '下一章'}</span>
           下一章
         </button>
       </div>
