@@ -302,8 +302,9 @@ export default function EpubReader({
   const [pageCount, setPageCount] = useState(1)
   const [pageWidth, setPageWidth] = useState(0)
   const [pageContentWidth, setPageContentWidth] = useState(0)
+  const [pageSlots, setPageSlots] = useState<number[]>([0])
   const [viewportVersion, setViewportVersion] = useState(0)
-  const pageGap = 24
+  const pageGap = 80
 
   // Scroll fraction (0–1) to restore once the next chapter HTML is painted.
   // Seeded from saved progress for the very first chapter only.
@@ -431,6 +432,7 @@ export default function EpubReader({
       setPageCount(1)
       setPageIndex(0)
       setPageWidth(0)
+      setPageSlots([0])
       const restore = pendingRestoreRef.current
       pendingRestoreRef.current = null
       const max = container.scrollHeight - container.clientHeight
@@ -444,11 +446,47 @@ export default function EpubReader({
       if (!width) return
       setPageWidth(width)
       setPageContentWidth(contentWidth)
-      const horizontalPadding = width - contentWidth
-      const scrollableColumnsWidth = Math.max(contentWidth, content.scrollWidth - horizontalPadding)
-      const count = Math.max(1, Math.ceil((scrollableColumnsWidth + pageGap) / (contentWidth + pageGap)))
+      const stride = contentWidth + pageGap
+      const prevTransform = content.style.transform
+      const prevTransition = content.style.transition
+      content.style.transform = 'none'
+      content.style.transition = 'none'
+      const rawCount = Math.max(1, Math.ceil((content.scrollWidth + pageGap) / stride))
+      const contentRect = content.getBoundingClientRect()
+      const visibleColumns = new Set<number>()
+
+      const addRect = (rect: DOMRect) => {
+        if (rect.width <= 1 || rect.height <= 1) return
+        const x = rect.left - contentRect.left
+        const col = Math.round(x / stride)
+        if (col >= 0 && col < rawCount) visibleColumns.add(col)
+      }
+
+      const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT, {
+        acceptNode: (node) =>
+          node.textContent?.trim() ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT,
+      })
+      let textNode: Node | null
+      while ((textNode = walker.nextNode())) {
+        const range = document.createRange()
+        range.selectNodeContents(textNode)
+        for (const rect of Array.from(range.getClientRects())) addRect(rect)
+        range.detach()
+      }
+      for (const media of Array.from(content.querySelectorAll('img, svg, table, pre'))) {
+        addRect(media.getBoundingClientRect())
+      }
+
+      const slots = [...visibleColumns].sort((a, b) => a - b)
+      if (slots.length === 0) {
+        for (let i = 0; i < rawCount; i++) slots.push(i)
+      }
+      content.style.transform = prevTransform
+      content.style.transition = prevTransition
+      const count = slots.length
       const restore = pendingRestoreRef.current
       pendingRestoreRef.current = null
+      setPageSlots(slots)
       setPageCount(count)
       setPageIndex((prev) => {
         if (restore != null) return Math.min(count - 1, Math.max(0, Math.round(restore * (count - 1))))
@@ -476,7 +514,8 @@ export default function EpubReader({
       if (isPaged && pageWidth) {
         const pageStride = (pageContentWidth || pageWidth) + pageGap
         const targetPage = Math.floor(target.offsetLeft / pageStride)
-        setPageIndex(Math.min(Math.max(0, targetPage), pageCount - 1))
+        const slotIndex = pageSlots.findIndex((slot) => slot >= targetPage)
+        setPageIndex(Math.min(Math.max(0, slotIndex >= 0 ? slotIndex : pageCount - 1), pageCount - 1))
       } else {
         target.scrollIntoView({ behavior: 'smooth', block: 'center' })
       }
@@ -484,7 +523,7 @@ export default function EpubReader({
       window.setTimeout(() => target.classList.remove('deeplink-flash'), 2400)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [html, highlightExcerpt, loading, chapterHighlights, isPaged, pageCount, pageWidth])
+  }, [html, highlightExcerpt, loading, chapterHighlights, isPaged, pageCount, pageSlots, pageWidth])
 
   // Persist intra-chapter scroll position as a fraction (debounced).
   const handleScroll = () => {
@@ -577,8 +616,23 @@ export default function EpubReader({
         event.preventDefault()
       }
     }
-    document.addEventListener('contextmenu', preventContentContextMenu)
-    return () => document.removeEventListener('contextmenu', preventContentContextMenu)
+    const preventNativeSelectionMenu = (event: TouchEvent) => {
+      const content = contentRef.current
+      if (
+        content &&
+        event.target instanceof Node &&
+        content.contains(event.target) &&
+        window.getSelection()?.toString().trim()
+      ) {
+        event.preventDefault()
+      }
+    }
+    document.addEventListener('contextmenu', preventContentContextMenu, true)
+    document.addEventListener('touchend', preventNativeSelectionMenu, { capture: true, passive: false })
+    return () => {
+      document.removeEventListener('contextmenu', preventContentContextMenu, true)
+      document.removeEventListener('touchend', preventNativeSelectionMenu, true)
+    }
   }, [])
 
   const handleCopySelection = async () => {
@@ -687,9 +741,12 @@ export default function EpubReader({
                     columnGap: pageGap,
                     columnWidth: pageContentWidth || undefined,
                     height: '100%',
-                    transform: `translate3d(-${pageIndex * ((pageContentWidth || pageWidth) + pageGap)}px, 0, 0)`,
+                    marginLeft: pageWidth > pageContentWidth ? (pageWidth - pageContentWidth) / 2 : 0,
+                    paddingLeft: 0,
+                    paddingRight: 0,
+                    transform: `translate3d(-${(pageSlots[pageIndex] ?? pageIndex) * ((pageContentWidth || pageWidth) + pageGap)}px, 0, 0)`,
                     transition: 'transform 180ms ease-out',
-                    width: pageWidth || undefined,
+                    width: pageContentWidth || undefined,
                   }
                 : undefined
             }
@@ -756,31 +813,31 @@ export default function EpubReader({
       )}
 
       <div
-        className={`flex shrink-0 items-center justify-between border-t border-gray-200 bg-white/95 px-4 py-2 shadow-[0_-2px_12px_rgba(15,23,42,0.08)] backdrop-blur transition-transform duration-200 dark:border-gray-700 dark:bg-gray-900/95 ${
+        className={`reader-page-bar ${
           isPaged
             ? `absolute inset-x-0 bottom-0 z-20 ${chromeVisible ? 'translate-y-0' : 'translate-y-full'}`
             : ''
         }`}
-        style={isPaged ? { paddingBottom: 'calc(env(safe-area-inset-bottom) + 0.5rem)' } : undefined}
+        style={isPaged ? { paddingBottom: 'calc(max(env(safe-area-inset-bottom), 18px) + 0.5rem)' } : undefined}
       >
         <button
           onClick={() => turnPage(-1)}
           disabled={isPaged ? idx <= 0 && pageIndex <= 0 : idx <= 0}
-          className="btn-secondary py-1.5 text-[0px]"
+          className="reader-page-button"
+          aria-label={isPaged ? '上一页' : '上一章'}
         >
-          <span className="text-xs">{isPaged ? '上一页' : '上一章'}</span>
-          上一章
+          ‹
         </button>
-        <span className="max-w-md truncate px-2 text-xs text-gray-500">
+        <span className="reader-page-label">
           {isPaged ? `${pageIndex + 1}/${pageCount} · ${chapters[idx]?.title || ''}` : chapters[idx]?.title || ''}
         </span>
         <button
           onClick={() => turnPage(1)}
           disabled={isPaged ? idx >= chapters.length - 1 && pageIndex >= pageCount - 1 : idx >= chapters.length - 1}
-          className="btn-secondary py-1.5 text-[0px]"
+          className="reader-page-button"
+          aria-label={isPaged ? '下一页' : '下一章'}
         >
-          <span className="text-xs">{isPaged ? '下一页' : '下一章'}</span>
-          下一章
+          ›
         </button>
       </div>
     </div>

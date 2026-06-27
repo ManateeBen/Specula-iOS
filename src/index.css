@@ -9,6 +9,7 @@
   }
   body {
     @apply h-full bg-gray-50 text-gray-900 dark:bg-gray-950 dark:text-gray-100;
+    -webkit-touch-callout: none;
     overscroll-behavior: none;
   }
   #root {
@@ -53,7 +54,9 @@
   @apply text-[15px] leading-7 text-gray-900 dark:text-gray-100;
   -webkit-touch-callout: none;
   -webkit-user-select: text;
+  overflow-wrap: break-word;
   user-select: text;
+  word-break: normal;
 }
 .epub-content * {
   -webkit-touch-callout: none;
@@ -62,13 +65,13 @@
   column-fill: auto;
   contain: layout paint;
   overflow: visible;
-  touch-action: pan-y;
+  touch-action: pan-y pinch-zoom;
   will-change: transform;
 }
 @media (max-width: 767px) {
   .epub-content {
-    padding-top: calc(env(safe-area-inset-top) + 1.75rem);
-    padding-bottom: calc(env(safe-area-inset-bottom) + 2rem);
+    padding-top: calc(max(env(safe-area-inset-top), 64px) + 1rem);
+    padding-bottom: calc(max(env(safe-area-inset-bottom), 18px) + 3rem);
   }
   .epub-content--paged {
     min-height: 100%;
@@ -121,6 +124,8 @@
 .epub-content code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.92em;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 .epub-content a {
   @apply text-specula-600 dark:text-specula-400;
@@ -320,6 +325,55 @@
 }
 .selection-menu__action:active {
   background: rgba(255, 255, 255, 0.08);
+}
+
+.reader-page-bar {
+  align-items: center;
+  background: transparent;
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) 42px;
+  gap: 10px;
+  padding: 8px 24px;
+  pointer-events: none;
+  transition: transform 0.2s ease;
+}
+.reader-page-button,
+.reader-page-label {
+  pointer-events: auto;
+}
+.reader-page-button {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.86);
+  border: 1px solid rgba(148, 163, 184, 0.32);
+  border-radius: 9999px;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.08);
+  color: #334155;
+  display: inline-flex;
+  font-size: 28px;
+  height: 42px;
+  justify-content: center;
+  line-height: 1;
+  width: 42px;
+}
+.reader-page-button:disabled {
+  opacity: 0.35;
+}
+.reader-page-label {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 9999px;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.06);
+  color: #64748b;
+  display: inline-flex;
+  font-size: 12px;
+  height: 34px;
+  justify-content: center;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Deep-link target: briefly flash the paragraph we scrolled to */

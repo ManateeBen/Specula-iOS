@@ -241,7 +241,7 @@ export default function Reader() {
               ? `absolute inset-x-0 top-0 transition-transform duration-200 ${chromeVisible ? 'translate-y-0' : '-translate-y-full'}`
               : ''
           }`}
-          style={isMobile ? { paddingTop: 'calc(env(safe-area-inset-top) + 0.5rem)' } : undefined}
+          style={isMobile ? { paddingTop: 'calc(max(env(safe-area-inset-top), 54px) + 0.5rem)' } : undefined}
         >
           <div className="flex min-w-0 items-center gap-2 sm:gap-3">
             <button
