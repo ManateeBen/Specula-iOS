@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Sparkles, X, Loader2 } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Loader2, Sparkles, X } from 'lucide-react'
 import TeachingModePicker from './TeachingModePicker'
 import type { TeachingMode } from '../types'
 import { useSettingsStore } from '../stores/settingsStore'
@@ -16,6 +16,7 @@ interface Props {
   chapterId: string | null
   bookTitle?: string
   chapterTitle?: string
+  action: 'explain' | 'explain-highlight'
   onClose: () => void
   onSaved: () => void
 }
@@ -26,6 +27,7 @@ export default function HighlightPopover({
   chapterId,
   bookTitle,
   chapterTitle,
+  action,
   onClose,
   onSaved,
 }: Props) {
@@ -35,15 +37,20 @@ export default function HighlightPopover({
   const [explanation, setExplanation] = useState('')
   const [streaming, setStreaming] = useState(false)
   const [error, setError] = useState('')
+  const [saved, setSaved] = useState(false)
+  const startedRef = useRef(false)
 
-  const handleExplain = async () => {
+  const runExplain = async () => {
     setLoading(true)
     setExplanation('')
     setError('')
     setStreaming(true)
+    setSaved(false)
 
+    let nextExplanation = ''
     const cleanup = window.specula.ai.onExplainChunk(
       (chunk) => {
+        nextExplanation += chunk
         setExplanation((prev) => prev + chunk)
       },
       (message) => {
@@ -61,6 +68,22 @@ export default function HighlightPopover({
         bookTitle,
         chapterTitle,
       })
+
+      if (action === 'explain-highlight') {
+        await window.specula.highlights.create({
+          bookId,
+          chapterId,
+          selectedText: selection.text,
+          context: selection.context,
+          aiExplanation: nextExplanation || null,
+          teachingMode: mode,
+          source: 'user',
+          weakPointTopic: null,
+          weakPointIndex: null,
+        })
+        setSaved(true)
+        onSaved()
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'AI 解释失败')
     } finally {
@@ -70,21 +93,12 @@ export default function HighlightPopover({
     }
   }
 
-  const handleSave = async () => {
-    await window.specula.highlights.create({
-      bookId,
-      chapterId,
-      selectedText: selection.text,
-      context: selection.context,
-      aiExplanation: explanation || null,
-      teachingMode: mode,
-      source: 'user',
-      weakPointTopic: null,
-      weakPointIndex: null,
-    })
-    onSaved()
-    onClose()
-  }
+  useEffect(() => {
+    if (startedRef.current) return
+    startedRef.current = true
+    void runExplain()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const isNarrow = window.innerWidth < 640
   const popoverWidth = Math.min(380, window.innerWidth - 24)
@@ -118,7 +132,9 @@ export default function HighlightPopover({
   return (
     <div style={style} className="card flex flex-col overflow-hidden shadow-lg">
       <div className="flex items-center justify-between border-b border-gray-200 px-3 py-2 dark:border-gray-700">
-        <span className="text-sm font-medium">AI 解释</span>
+        <span className="text-sm font-medium">
+          {action === 'explain-highlight' ? 'AI 解释并高亮' : 'AI 解释'}
+        </span>
         <button onClick={onClose} className="rounded p-1 hover:bg-gray-100 dark:hover:bg-gray-800">
           <X className="h-4 w-4" />
         </button>
@@ -131,13 +147,6 @@ export default function HighlightPopover({
         </blockquote>
 
         <TeachingModePicker value={mode} onChange={setMode} compact />
-
-        {!explanation && !loading && (
-          <button onClick={handleExplain} className="btn-primary w-full">
-            <Sparkles className="h-4 w-4" />
-            生成解释
-          </button>
-        )}
 
         {loading && !explanation && (
           <div className="flex items-center justify-center gap-2 py-4 text-sm text-gray-500">
@@ -156,11 +165,10 @@ export default function HighlightPopover({
         )}
       </div>
 
-      {explanation && !streaming && (
-        <div className="border-t border-gray-200 p-3 dark:border-gray-700">
-          <button onClick={handleSave} className="btn-primary w-full">
-            保存划线
-          </button>
+      {action === 'explain-highlight' && saved && !streaming && (
+        <div className="flex items-center justify-center gap-2 border-t border-gray-200 p-3 text-sm text-green-600 dark:border-gray-700 dark:text-green-400">
+          <Sparkles className="h-4 w-4" />
+          已保存为高亮
         </div>
       )}
     </div>

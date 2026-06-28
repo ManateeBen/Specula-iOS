@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useMemo } from 'react'
-import { Highlighter, Sparkles } from 'lucide-react'
+import { List, Sparkles } from 'lucide-react'
 import type { Chapter, Highlight, ImageSelectionInfo } from '../../types'
 import { buildWeakPointIndexMap, getWeakPointColorSlot } from '../../utils/weakPointStyle'
 
@@ -228,7 +228,7 @@ function sanitizeRenderedChapter(el: HTMLElement): void {
 function markRange(
   range: Range,
   className: string,
-  meta?: { topic?: string; wpIndex?: number; colorSlot?: number }
+  meta?: { highlightId?: string; topic?: string; wpIndex?: number; colorSlot?: number }
 ): boolean {
   const rootNode = range.commonAncestorContainer
   const walkerRoot =
@@ -253,6 +253,7 @@ function markRange(
     const classes = [className]
     if (meta?.colorSlot) classes.push(`quiz-wp-${meta.colorSlot}`)
     mark.className = classes.join(' ')
+    if (meta?.highlightId) mark.setAttribute('data-highlight-id', meta.highlightId)
     if (meta?.wpIndex) mark.setAttribute('data-wp-index', String(meta.wpIndex))
     if (meta?.topic) mark.setAttribute('data-topic', meta.topic)
     try {
@@ -277,9 +278,11 @@ interface Props {
   highlights?: Highlight[]
   onProgress: (chapterId: string | null, position: string) => void
   onTextSelect: (text: string, context: string, rect: DOMRect) => void
+  onExplainAndHighlight: (text: string, context: string, rect: DOMRect) => void
+  onHighlightSelect?: (highlight: Highlight) => void
   onImageSelect?: (info: ImageSelectionInfo) => void
-  onHighlightsChange?: () => void
   onUnlocatedChange?: (ids: string[]) => void
+  onToggleToc?: () => void
 }
 
 // We render EPUB chapters ourselves (chapter HTML fetched from the main process
@@ -298,9 +301,11 @@ export default function EpubReader({
   highlights,
   onProgress,
   onTextSelect,
+  onExplainAndHighlight,
+  onHighlightSelect,
   onImageSelect,
-  onHighlightsChange,
   onUnlocatedChange,
+  onToggleToc,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
@@ -447,11 +452,14 @@ export default function EpubReader({
       const ok = range
         ? h.source === 'quiz'
           ? markRange(range, 'quiz-highlight', {
+              highlightId: h.id,
               topic: h.weakPointTopic || '',
               wpIndex,
               colorSlot: wpIndex ? getWeakPointColorSlot(wpIndex) : undefined,
             })
-          : markRange(range, `user-highlight ${highlightClassForColor(getHighlightColor(h.context))}`)
+          : markRange(range, `user-highlight ${highlightClassForColor(getHighlightColor(h.context))}`, {
+              highlightId: h.id,
+            })
         : false
       if (!ok) unlocated.push(h.id)
     }
@@ -987,32 +995,16 @@ export default function EpubReader({
     }
   }, [])
 
-  const handleManualHighlight = async (color: HighlightColor = DEFAULT_HIGHLIGHT_COLOR) => {
-    const info = selInfoRef.current
-    if (!info) return
-    clearSelectionState()
-    try {
-      await window.specula.highlights.create({
-        bookId,
-        chapterId: currentChapterId,
-        selectedText: info.text,
-        context: withHighlightMeta(info.context, color),
-        aiExplanation: null,
-        teachingMode: null,
-        source: 'user',
-        weakPointTopic: null,
-        weakPointIndex: null,
-      })
-      onHighlightsChange?.()
-    } catch {
-      // Persistence failure — applyHighlights will not run without a refresh.
-    }
-  }
-
   const handleExplainSelection = () => {
     const info = selInfoRef.current
     clearSelectionState()
     if (info) onTextSelect(info.text, info.context, info.rect)
+  }
+
+  const handleExplainAndHighlightSelection = () => {
+    const info = selInfoRef.current
+    clearSelectionState()
+    if (info) onExplainAndHighlight(info.text, withHighlightMeta(info.context, DEFAULT_HIGHLIGHT_COLOR), info.rect)
   }
 
   // Click an inlined image to ask the vision model to explain it.
@@ -1022,6 +1014,16 @@ export default function EpubReader({
       return
     }
     const target = e.target as HTMLElement
+    const mark = target.closest('mark[data-highlight-id]') as HTMLElement | null
+    if (mark) {
+      const id = mark.getAttribute('data-highlight-id')
+      const highlight = highlights?.find((h) => h.id === id)
+      if (highlight) {
+        onHighlightSelect?.(highlight)
+        e.stopPropagation()
+        return
+      }
+    }
     if (target.tagName !== 'IMG') {
       if (!window.getSelection()?.toString()) onToggleChrome?.()
       return
@@ -1100,13 +1102,13 @@ export default function EpubReader({
           onTouchStart={(e) => e.preventDefault()}
         >
           <div className="selection-menu__actions">
-            <button type="button" className="selection-menu__action" onClick={() => handleManualHighlight()}>
-              <Highlighter className="h-5 w-5" />
-              <span>高亮</span>
-            </button>
             <button type="button" className="selection-menu__action" onClick={handleExplainSelection}>
               <Sparkles className="h-5 w-5" />
               <span>AI 解释</span>
+            </button>
+            <button type="button" className="selection-menu__action" onClick={handleExplainAndHighlightSelection}>
+              <Sparkles className="h-5 w-5" />
+              <span>解释并高亮</span>
             </button>
           </div>
         </div>
@@ -1125,6 +1127,14 @@ export default function EpubReader({
           aria-label="上一章"
         >
           上一章
+        </button>
+        <button
+          onClick={onToggleToc}
+          className="reader-page-button reader-page-button--toc"
+          aria-label="目录"
+        >
+          <List className="h-4 w-4" />
+          <span>目录</span>
         </button>
         <span className="reader-page-label">
           {chapters[idx]?.title || ''}

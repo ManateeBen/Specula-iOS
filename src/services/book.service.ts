@@ -73,6 +73,21 @@ function extractBodyText(doc: Document): string {
   return text.replace(/[ \t]+/g, ' ').replace(/\n[ \t]*/g, '\n').replace(/\n{3,}/g, '\n\n').trim()
 }
 
+async function extractEpubHrefText(zip: JSZip, opfDir: string, href: string): Promise<string> {
+  try {
+    const zipPath = resolveZipPath(opfDir, href)
+    const file = zip.file(zipPath)
+    if (!file) return ''
+    return extractBodyText(parseXml(await file.async('string')))
+  } catch {
+    return ''
+  }
+}
+
+function normalizeReadableText(text: string): string {
+  return text.replace(/\s+/g, '')
+}
+
 async function loadEpubZip(filePath: string): Promise<JSZip> {
   const data = await readBinaryFile(filePath)
   return JSZip.loadAsync(data)
@@ -214,12 +229,19 @@ async function parseEpubMetadata(filePath: string, fallbackName: string): Promis
     toc = spineHrefs.map((href, i) => ({ label: `第 ${i + 1} 章`, href: href.split('#')[0] }))
   }
 
-  const chapters: Omit<Chapter, 'id' | 'bookId'>[] = toc.map((item, index) => ({
+  let chapters: Omit<Chapter, 'id' | 'bookId'>[] = toc.map((item, index) => ({
     title: item.label || `章节 ${index + 1}`,
     orderIndex: index,
     startRef: item.href.split('#')[0],
     endRef: item.href.split('#')[0],
   }))
+
+  while (chapters.length > 1) {
+    const first = chapters[0]
+    const text = await extractEpubHrefText(zip, opfDir, first.startRef)
+    if (normalizeReadableText(text).length >= 80) break
+    chapters = chapters.slice(1).map((chapter, index) => ({ ...chapter, orderIndex: index }))
+  }
 
   let coverPath: string | null = null
   try {
