@@ -195,6 +195,7 @@ export interface AnalyzeWeakPointsRequest {
 export interface SpeculaAPI {
   books: {
     import: () => Promise<Book | null>
+    importFromStoragePath: (filePath: string, originalName?: string) => Promise<Book | null>
     list: () => Promise<Book[]>
     delete: (id: string) => Promise<void>
     get: (id: string) => Promise<Book | null>

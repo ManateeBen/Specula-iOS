@@ -18,6 +18,8 @@ import { onExplainChunk } from './streamEvents'
 export const speculaApi: SpeculaAPI = {
   books: {
     import: () => bookService.importBook(),
+    importFromStoragePath: (filePath, originalName) =>
+      bookService.importBookFromStoragePath(filePath, originalName),
     list: () => Promise.resolve(bookService.listBooks()),
     delete: (id) => bookService.deleteBook(id),
     get: (id) => Promise.resolve(bookService.getBook(id)),

@@ -25,6 +25,8 @@ export default function Library() {
 
   useEffect(() => {
     loadBooks()
+    window.addEventListener('specula:library-updated', loadBooks)
+    return () => window.removeEventListener('specula:library-updated', loadBooks)
   }, [])
 
   const handleImport = async () => {

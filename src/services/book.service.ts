@@ -361,18 +361,37 @@ export async function importBook(): Promise<Book | null> {
   const file = await pickBookFile()
   if (!file) return null
 
-  const name = file.name.toLowerCase()
+  const fileData = await readFileAsUint8Array(file)
+  return importBookData(fileData, file.name)
+}
+
+export async function importBookFromStoragePath(filePath: string, originalName?: string): Promise<Book | null> {
+  const fileData = await readBinaryFile(filePath)
+  try {
+    return await importBookData(fileData, originalName || filePath.split('/').pop() || 'book')
+  } finally {
+    if (filePath.startsWith('ExternalImports/')) {
+      await deleteFile(filePath)
+    }
+  }
+}
+
+async function importBookData(fileData: Uint8Array, fileName: string): Promise<Book> {
+  const name = fileName.toLowerCase()
+  if (!name.endsWith('.epub') && !name.endsWith('.pdf')) {
+    throw new Error('仅支持导入 EPUB 或 PDF 文件')
+  }
+
   const format: BookFormat = name.endsWith('.epub') ? 'epub' : 'pdf'
   const ext = format === 'epub' ? '.epub' : '.pdf'
 
   const bookId = uuidv4()
   const destPath = `${getBooksDir()}/${bookId}${ext}`
-  const fileData = await readFileAsUint8Array(file)
   await writeBinaryFile(destPath, fileData)
 
   const meta = format === 'epub'
-    ? await parseEpubMetadata(destPath, file.name)
-    : await parsePdfMetadata(destPath, file.name)
+    ? await parseEpubMetadata(destPath, fileName)
+    : await parsePdfMetadata(destPath, fileName)
 
   const statements: { sql: string; params: unknown[] }[] = [
     {
@@ -393,7 +412,8 @@ export async function importBook(): Promise<Book | null> {
   runMany(statements)
 
   const row = queryOne<BookRow>('SELECT * FROM books WHERE id = ?', [bookId])
-  return row ? rowToBook(row) : null
+  if (!row) throw new Error('导入书籍失败')
+  return rowToBook(row)
 }
 
 export function listBooks(): Book[] {

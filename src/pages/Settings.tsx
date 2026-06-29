@@ -49,14 +49,22 @@ export default function Settings() {
 
   useEffect(() => {
     if (settings.loaded) {
-      setBaseURL(settings.baseURL || 'https://api.deepseek.com')
+      const detectedTextProvider = detectTextProvider(settings.baseURL, settings.model)
+      const textPreset =
+        TEXT_LLM_PROVIDERS.find((p) => p.id === detectedTextProvider && p.id !== 'custom') ??
+        TEXT_LLM_PROVIDERS[0]
+      setBaseURL(textPreset.baseURL)
       setModel(settings.model)
-      setTextProvider(detectTextProvider(settings.baseURL, settings.model))
+      setTextProvider(textPreset.id)
       setTeachingMode(settings.defaultTeachingMode)
       setDarkMode(settings.darkMode)
-      setVisionBaseURL(settings.visionBaseURL)
+      const detectedVisionProvider = detectVisionProvider(settings.visionBaseURL)
+      const visionPreset =
+        VISION_LLM_PROVIDERS.find((p) => p.id === detectedVisionProvider && p.id !== 'custom') ??
+        VISION_LLM_PROVIDERS[0]
+      setVisionBaseURL(visionPreset.baseURL)
       setVisionModel(settings.visionModel)
-      setVisionProvider(detectVisionProvider(settings.visionBaseURL))
+      setVisionProvider(visionPreset.id)
     }
   }, [settings.loaded, settings.baseURL, settings.model, settings.visionBaseURL])
 
@@ -187,9 +195,7 @@ export default function Settings() {
               <MessageSquare className="h-5 w-5 text-specula-600" />
               <h2 className="font-medium">文本模型（划线解释 / 测验 / 薄弱点）</h2>
             </div>
-            <p className="mb-4 text-xs text-gray-500">
-              使用应用内置凭据，用户无需配置 API Key。可按需选择服务商与模型。
-            </p>
+            <p className="mb-4 text-xs text-gray-500">使用应用内置凭据，用户只需选择服务商与模型。</p>
 
             <div className="space-y-3">
               <div>
@@ -199,7 +205,7 @@ export default function Settings() {
                   onChange={(e) => handleTextProviderChange(e.target.value as LlmProviderId)}
                   className="input"
                 >
-                  {TEXT_LLM_PROVIDERS.map((p) => (
+                  {TEXT_LLM_PROVIDERS.filter((p) => p.id !== 'custom').map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.label}
                     </option>
@@ -208,19 +214,6 @@ export default function Settings() {
                 {textPreset?.hint && (
                   <p className="mt-1 text-[11px] text-gray-400">{textPreset.hint}</p>
                 )}
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-gray-500">Base URL</label>
-                <input
-                  type="text"
-                  value={baseURL}
-                  onChange={(e) => {
-                    setBaseURL(e.target.value)
-                    setTextProvider('custom')
-                  }}
-                  className="input"
-                  placeholder="https://api.deepseek.com"
-                />
               </div>
               <div>
                 <label className="mb-1 block text-xs font-medium text-gray-500">模型</label>
@@ -268,9 +261,7 @@ export default function Settings() {
               <ImageIcon className="h-5 w-5 text-specula-600" />
               <h2 className="font-medium">视觉模型（EPUB 图片解释）</h2>
             </div>
-            <p className="mb-4 text-xs text-gray-500">
-              图片讲解使用应用内置多模态模型凭据，用户无需配置 API Key。
-            </p>
+            <p className="mb-4 text-xs text-gray-500">图片讲解使用应用内置多模态模型凭据。</p>
             <div className="space-y-3">
               <div>
                 <label className="mb-1 block text-xs font-medium text-gray-500">服务商</label>
@@ -279,7 +270,7 @@ export default function Settings() {
                   onChange={(e) => handleVisionProviderChange(e.target.value as VisionProviderId)}
                   className="input"
                 >
-                  {VISION_LLM_PROVIDERS.map((p) => (
+                  {VISION_LLM_PROVIDERS.filter((p) => p.id !== 'custom').map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.label}
                     </option>
@@ -288,19 +279,6 @@ export default function Settings() {
                 {visionPreset?.hint && (
                   <p className="mt-1 text-[11px] text-gray-400">{visionPreset.hint}</p>
                 )}
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-gray-500">Base URL</label>
-                <input
-                  type="text"
-                  value={visionBaseURL}
-                  onChange={(e) => {
-                    setVisionBaseURL(e.target.value)
-                    setVisionProvider('custom')
-                  }}
-                  className="input"
-                  placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1"
-                />
               </div>
               <div>
                 <label className="mb-1 block text-xs font-medium text-gray-500">模型</label>
