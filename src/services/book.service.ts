@@ -275,6 +275,7 @@ async function parseEpubMetadata(filePath: string, fallbackName: string): Promis
 const PDF_SAMPLE_PAGES = 5
 const PDF_TEXT_PAGE_MIN_CHARS = 80
 const PDF_EMPTY_PAGE_MAX_CHARS = 20
+const PDF_TEXT_PAGE_RATIO_THRESHOLD = 0.6
 
 function getPdfUnsupportedReason(status: PdfTextStatus): string | null {
   if (status === 'scan') return '扫描型 PDF 暂不支持 AI 解释、章节测验和薄弱点分析，开发中'
@@ -316,9 +317,9 @@ async function detectPdfTextStatus(doc: Awaited<ReturnType<typeof pdfjs.getDocum
     else weakPages += 1
   }
 
-  if (textPages === samplePages.length) return 'text'
-  if (textPages > 0 && (emptyPages > 0 || weakPages > 0)) return 'mixed'
   if (textPages === 0) return 'scan'
+  if (textPages / samplePages.length >= PDF_TEXT_PAGE_RATIO_THRESHOLD) return 'text'
+  if (emptyPages > 0 || weakPages > 0) return 'mixed'
   return 'mixed'
 }
 
