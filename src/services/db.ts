@@ -63,6 +63,8 @@ export async function initDatabase(): Promise<SqlJsDatabase> {
       format TEXT NOT NULL CHECK(format IN ('epub', 'pdf')),
       file_path TEXT NOT NULL,
       cover_path TEXT,
+      pdf_text_status TEXT,
+      pdf_ai_unsupported_reason TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -122,6 +124,8 @@ export async function initDatabase(): Promise<SqlJsDatabase> {
   try { db.run(`ALTER TABLE highlights ADD COLUMN source TEXT NOT NULL DEFAULT 'user'`) } catch { /* exists */ }
   try { db.run(`ALTER TABLE highlights ADD COLUMN weak_point_topic TEXT`) } catch { /* exists */ }
   try { db.run(`ALTER TABLE highlights ADD COLUMN weak_point_index INTEGER`) } catch { /* exists */ }
+  try { db.run(`ALTER TABLE books ADD COLUMN pdf_text_status TEXT`) } catch { /* exists */ }
+  try { db.run(`ALTER TABLE books ADD COLUMN pdf_ai_unsupported_reason TEXT`) } catch { /* exists */ }
   try { db.run(`ALTER TABLE quiz_attempts ADD COLUMN results_json TEXT NOT NULL DEFAULT '[]'`) } catch { /* exists */ }
   try { db.run(`ALTER TABLE quiz_attempts ADD COLUMN time_taken_ms INTEGER NOT NULL DEFAULT 0`) } catch { /* exists */ }
   try { db.run(`ALTER TABLE quiz_attempts ADD COLUMN completed_at TEXT`) } catch { /* exists */ }

@@ -43,6 +43,7 @@ export default function Reader() {
   const [pdfJumpChapterId, setPdfJumpChapterId] = useState<string | null>(null)
   const [, setUnlocatedIds] = useState<string[]>([])
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
   const [ready, setReady] = useState(false)
   const [selection, setSelection] = useState<{
     text: string
@@ -178,16 +179,24 @@ export default function Reader() {
   }, [flushProgress])
 
   const handleTextSelect = useCallback((text: string, context: string, rect: DOMRect) => {
+    if (book?.format === 'pdf' && book.pdfTextStatus !== 'text') {
+      setNotice(book.pdfAiUnsupportedReason || '该 PDF 暂不支持 AI 功能，开发中')
+      return
+    }
     setImageSelection(null)
     setActiveHighlight(null)
     setSelection({ text, context, rect, action: 'explain' })
-  }, [])
+  }, [book])
 
   const handleExplainAndHighlight = useCallback((text: string, context: string, rect: DOMRect) => {
+    if (book?.format === 'pdf' && book.pdfTextStatus !== 'text') {
+      setNotice(book.pdfAiUnsupportedReason || '该 PDF 暂不支持 AI 功能，开发中')
+      return
+    }
     setImageSelection(null)
     setActiveHighlight(null)
     setSelection({ text, context, rect, action: 'explain-highlight' })
-  }, [])
+  }, [book])
 
   const handleImageSelect = useCallback((info: ImageSelectionInfo) => {
     setSelection(null)
@@ -206,6 +215,10 @@ export default function Reader() {
   const chapterHighlights = highlights.filter((h) => h.chapterId === activeChapterId)
   const wpIndexMap = buildWeakPointIndexMap(chapterHighlights)
   const activeWeakPointIndex = activeHighlight ? getWeakPointIndex(activeHighlight, wpIndexMap) : null
+  const pdfAiDisabled = book?.format === 'pdf' && book.pdfTextStatus !== 'text'
+  const pdfAiDisabledMessage = pdfAiDisabled
+    ? book.pdfAiUnsupportedReason || '该 PDF 暂不支持 AI 解释、章节测验和薄弱点分析，开发中'
+    : ''
 
   const handleTocSelect = useCallback(
     (chapterId: string) => {
@@ -286,13 +299,25 @@ export default function Reader() {
           <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
             {activeChapterId && (
               <>
-                <Link
-                  to={`/quiz/${bookId}/${activeChapterId}`}
-                  className="btn-secondary min-h-10 px-2.5 py-1.5 text-[0px] sm:px-3 sm:text-xs"
-                >
-                  <ClipboardList className="h-3.5 w-3.5" />
-                  章节测验
-                </Link>
+                {pdfAiDisabled ? (
+                  <button
+                    type="button"
+                    disabled
+                    title={pdfAiDisabledMessage}
+                    className="btn-secondary min-h-10 cursor-not-allowed px-2.5 py-1.5 text-[0px] opacity-60 sm:px-3 sm:text-xs"
+                  >
+                    <ClipboardList className="h-3.5 w-3.5" />
+                    章节测验
+                  </button>
+                ) : (
+                  <Link
+                    to={`/quiz/${bookId}/${activeChapterId}`}
+                    className="btn-secondary min-h-10 px-2.5 py-1.5 text-[0px] sm:px-3 sm:text-xs"
+                  >
+                    <ClipboardList className="h-3.5 w-3.5" />
+                    章节测验
+                  </Link>
+                )}
                 <Link
                   to={`/quiz-history/${bookId}/${activeChapterId}`}
                   className="btn-secondary min-h-10 px-2.5 py-1.5 text-[0px] sm:px-3 sm:text-xs"
@@ -304,6 +329,12 @@ export default function Reader() {
             )}
           </div>
         </div>
+
+        {(pdfAiDisabledMessage || notice) && (
+          <div className="z-10 border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+            {notice || pdfAiDisabledMessage}
+          </div>
+        )}
 
         <div className="relative flex-1 overflow-hidden">
           {book.format === 'epub' ? (

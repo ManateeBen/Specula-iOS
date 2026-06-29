@@ -9,6 +9,7 @@ export default function Library() {
   const [loading, setLoading] = useState(true)
   const [importing, setImporting] = useState(false)
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
 
   const loadBooks = async () => {
     setLoading(true)
@@ -32,9 +33,15 @@ export default function Library() {
   const handleImport = async () => {
     setImporting(true)
     setError('')
+    setNotice('')
     try {
       const book = await window.specula.books.import()
-      if (book) await loadBooks()
+      if (book) {
+        await loadBooks()
+        if (book.format === 'pdf' && book.pdfTextStatus !== 'text') {
+          setNotice(book.pdfAiUnsupportedReason || '该 PDF 暂不支持 AI 功能，开发中')
+        }
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : '导入书籍失败')
     } finally {
@@ -74,6 +81,11 @@ export default function Library() {
         {error && (
           <div className="card mb-4 border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-400">
             {error}
+          </div>
+        )}
+        {notice && (
+          <div className="card mb-4 border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+            {notice}
           </div>
         )}
 

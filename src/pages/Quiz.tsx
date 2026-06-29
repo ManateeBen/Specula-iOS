@@ -78,6 +78,11 @@ export default function QuizPage() {
       try {
         const b = await window.specula.books.get(bookId)
         setBook(b)
+        if (b?.format === 'pdf' && b.pdfTextStatus !== 'text') {
+          setError(b.pdfAiUnsupportedReason || '该 PDF 暂不支持章节测验和薄弱点分析，开发中')
+          setPhase('setup')
+          return
+        }
         const chapters = await window.specula.chapters.listByBook(bookId)
         const ch = chapters.find((c) => c.id === chapterId) || null
         setChapter(ch)
@@ -332,6 +337,7 @@ export default function QuizPage() {
   const correctCount = results.filter((r) => r.correct).length
   const totalCount = results.length
   const allAnswered = quiz ? quiz.questions.every((q) => isQuestionAnswered(q, answers)) : false
+  const pdfAiDisabled = book?.format === 'pdf' && book.pdfTextStatus !== 'text'
 
   return (
     <div className="h-full overflow-y-auto">
@@ -365,7 +371,7 @@ export default function QuizPage() {
           </div>
         )}
 
-        {phase === 'setup' && (
+        {phase === 'setup' && !pdfAiDisabled && (
           <QuizSetupForm
             config={quizConfig}
             onChange={setQuizConfig}

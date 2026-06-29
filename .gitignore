@@ -1,4 +1,5 @@
 node_modules/
+.pnpm-store/
 dist/
 ios/App/Pods/
 ios/App/build/

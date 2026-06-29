@@ -1,4 +1,5 @@
 export type BookFormat = 'epub' | 'pdf'
+export type PdfTextStatus = 'text' | 'scan' | 'mixed' | 'unknown'
 
 export type TeachingMode =
   | 'direct'
@@ -20,6 +21,8 @@ export interface Book {
   format: BookFormat
   filePath: string
   coverPath: string | null
+  pdfTextStatus: PdfTextStatus | null
+  pdfAiUnsupportedReason: string | null
   createdAt: string
 }
 

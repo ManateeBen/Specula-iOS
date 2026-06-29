@@ -13,7 +13,7 @@ import {
   COVERS_DIR,
 } from './storage'
 import { getBooksDir, getCoversDir, runSql, runMany, queryAll, queryOne } from './db'
-import type { Book, Chapter, BookFormat } from '../types'
+import type { Book, Chapter, BookFormat, PdfTextStatus } from '../types'
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/build/pdf.worker.min.js',
@@ -119,6 +119,8 @@ interface BookRow {
   format: BookFormat
   file_path: string
   cover_path: string | null
+  pdf_text_status: PdfTextStatus | null
+  pdf_ai_unsupported_reason: string | null
   created_at: string
 }
 
@@ -139,6 +141,8 @@ function rowToBook(row: BookRow): Book {
     format: row.format,
     filePath: row.file_path,
     coverPath: row.cover_path,
+    pdfTextStatus: row.pdf_text_status ?? null,
+    pdfAiUnsupportedReason: row.pdf_ai_unsupported_reason ?? null,
     createdAt: row.created_at,
   }
 }
@@ -268,14 +272,67 @@ async function parseEpubMetadata(filePath: string, fallbackName: string): Promis
   return { title, author, coverPath, chapters }
 }
 
+const PDF_SAMPLE_PAGES = 5
+const PDF_TEXT_PAGE_MIN_CHARS = 80
+const PDF_EMPTY_PAGE_MAX_CHARS = 20
+
+function getPdfUnsupportedReason(status: PdfTextStatus): string | null {
+  if (status === 'scan') return '扫描型 PDF 暂不支持 AI 解释、章节测验和薄弱点分析，开发中'
+  if (status === 'mixed') return '混合型 PDF 暂不支持 AI 解释、章节测验和薄弱点分析，开发中'
+  if (status === 'unknown') return '该 PDF 尚未完成文本检测，请重新导入后使用 AI 功能'
+  return null
+}
+
+function getPdfSamplePages(totalPages: number): number[] {
+  const sampleCount = Math.min(PDF_SAMPLE_PAGES, totalPages)
+  if (sampleCount <= 0) return []
+  if (sampleCount === 1) return [1]
+
+  const pages = new Set<number>()
+  for (let i = 0; i < sampleCount; i++) {
+    pages.add(Math.max(1, Math.min(totalPages, Math.round(1 + ((totalPages - 1) * i) / (sampleCount - 1)))))
+  }
+  return [...pages].sort((a, b) => a - b)
+}
+
+async function detectPdfTextStatus(doc: Awaited<ReturnType<typeof pdfjs.getDocument>['promise']>): Promise<PdfTextStatus> {
+  const samplePages = getPdfSamplePages(doc.numPages)
+  if (samplePages.length === 0) return 'scan'
+
+  let textPages = 0
+  let emptyPages = 0
+  let weakPages = 0
+
+  for (const pageNumber of samplePages) {
+    const page = await doc.getPage(pageNumber)
+    const content = await page.getTextContent()
+    const text = content.items
+      .map((item) => ('str' in item ? item.str : ''))
+      .join('')
+      .replace(/\s+/g, '')
+
+    if (text.length >= PDF_TEXT_PAGE_MIN_CHARS) textPages += 1
+    else if (text.length <= PDF_EMPTY_PAGE_MAX_CHARS) emptyPages += 1
+    else weakPages += 1
+  }
+
+  if (textPages === samplePages.length) return 'text'
+  if (textPages > 0 && (emptyPages > 0 || weakPages > 0)) return 'mixed'
+  if (textPages === 0) return 'scan'
+  return 'mixed'
+}
+
 async function parsePdfMetadata(filePath: string, fallbackName: string): Promise<{
   title: string
   author: string
   coverPath: string | null
+  pdfTextStatus: PdfTextStatus
+  pdfAiUnsupportedReason: string | null
   chapters: Omit<Chapter, 'id' | 'bookId'>[]
 }> {
   const data = await readBinaryFile(filePath)
   const doc = await pdfjs.getDocument({ data }).promise
+  const pdfTextStatus = await detectPdfTextStatus(doc)
 
   const metadata = await doc.getMetadata().catch(() => ({ info: {} }))
   const info = (metadata as { info?: Record<string, string> }).info || {}
@@ -354,7 +411,14 @@ async function parsePdfMetadata(filePath: string, fallbackName: string): Promise
     }
   }
 
-  return { title, author, coverPath: null, chapters }
+  return {
+    title,
+    author,
+    coverPath: null,
+    pdfTextStatus,
+    pdfAiUnsupportedReason: getPdfUnsupportedReason(pdfTextStatus),
+    chapters,
+  }
 }
 
 export async function importBook(): Promise<Book | null> {
@@ -389,14 +453,29 @@ async function importBookData(fileData: Uint8Array, fileName: string): Promise<B
   const destPath = `${getBooksDir()}/${bookId}${ext}`
   await writeBinaryFile(destPath, fileData)
 
-  const meta = format === 'epub'
+  const parsed = format === 'epub'
     ? await parseEpubMetadata(destPath, fileName)
     : await parsePdfMetadata(destPath, fileName)
+  const meta = {
+    ...parsed,
+    pdfTextStatus: format === 'pdf' && 'pdfTextStatus' in parsed ? parsed.pdfTextStatus : null,
+    pdfAiUnsupportedReason:
+      format === 'pdf' && 'pdfAiUnsupportedReason' in parsed ? parsed.pdfAiUnsupportedReason : null,
+  }
 
   const statements: { sql: string; params: unknown[] }[] = [
     {
-      sql: `INSERT INTO books (id, title, author, format, file_path, cover_path) VALUES (?, ?, ?, ?, ?, ?)`,
-      params: [bookId, meta.title, meta.author, format, destPath, meta.coverPath],
+      sql: `INSERT INTO books (id, title, author, format, file_path, cover_path, pdf_text_status, pdf_ai_unsupported_reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      params: [
+        bookId,
+        meta.title,
+        meta.author,
+        format,
+        destPath,
+        meta.coverPath,
+        meta.pdfTextStatus,
+        meta.pdfAiUnsupportedReason,
+      ],
     },
   ]
   for (const ch of meta.chapters) {
