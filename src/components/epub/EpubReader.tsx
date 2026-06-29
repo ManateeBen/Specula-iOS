@@ -1136,9 +1136,6 @@ export default function EpubReader({
           <List className="h-4 w-4" />
           <span>目录</span>
         </button>
-        <span className="reader-page-label">
-          {chapters[idx]?.title || ''}
-        </span>
         <button
           onClick={goNext}
           disabled={idx >= chapters.length - 1}

@@ -37,7 +37,7 @@ import { TEACHING_MODE_LABELS, QUIZ_PRESET_LABELS, QUIZ_PRESET_TYPES } from '../
 
 async function createClient(): Promise<OpenAI> {
   const { apiKey, baseURL } = await getTextConfig()
-  if (!apiKey) throw new Error('请先在设置中配置文本模型 API Key')
+  if (!apiKey) throw new Error('应用未配置内置文本模型 API Key')
   if (!baseURL) throw new Error('请先在设置中配置文本模型 Base URL')
   return new OpenAI({ apiKey, baseURL, dangerouslyAllowBrowser: true })
 }
@@ -49,7 +49,7 @@ async function getModel(): Promise<string> {
 
 async function createVisionClient(): Promise<{ client: OpenAI; model: string }> {
   const { apiKey, baseURL, model } = await getVisionConfig()
-  if (!apiKey) throw new Error('请先在设置中配置「视觉模型」API Key（用于图片解释）')
+  if (!apiKey) throw new Error('应用未配置内置视觉模型 API Key（用于图片解释）')
   return { client: new OpenAI({ apiKey, baseURL, dangerouslyAllowBrowser: true }), model }
 }
 

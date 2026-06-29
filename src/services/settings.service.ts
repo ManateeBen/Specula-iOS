@@ -1,6 +1,9 @@
 import { Preferences } from '@capacitor/preferences'
 import type { AppSettings, TeachingMode } from '../types'
 
+const BUILTIN_TEXT_API_KEY = import.meta.env.VITE_SPECULA_TEXT_API_KEY || ''
+const BUILTIN_VISION_API_KEY = import.meta.env.VITE_SPECULA_VISION_API_KEY || ''
+
 const KEYS = {
   apiKey: 'apiKey',
   baseURL: 'baseURL',
@@ -13,12 +16,12 @@ const KEYS = {
 } as const
 
 const DEFAULTS: AppSettings = {
-  apiKey: '',
+  apiKey: BUILTIN_TEXT_API_KEY,
   baseURL: 'https://api.deepseek.com',
   model: 'deepseek-chat',
   defaultTeachingMode: 'direct',
   darkMode: false,
-  visionApiKey: '',
+  visionApiKey: BUILTIN_VISION_API_KEY || BUILTIN_TEXT_API_KEY,
   visionBaseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
   visionModel: 'qwen-vl-max',
 }
@@ -76,7 +79,7 @@ export async function setSettings(partial: Partial<AppSettings>): Promise<AppSet
 export async function getTextConfig(): Promise<{ apiKey: string; baseURL: string; model: string }> {
   const s = await getSettings()
   return {
-    apiKey: s.apiKey,
+    apiKey: BUILTIN_TEXT_API_KEY || s.apiKey,
     baseURL: s.baseURL || DEFAULTS.baseURL,
     model: s.model || DEFAULTS.model,
   }
@@ -85,7 +88,7 @@ export async function getTextConfig(): Promise<{ apiKey: string; baseURL: string
 export async function getVisionConfig(): Promise<{ apiKey: string; baseURL: string; model: string }> {
   const s = await getSettings()
   return {
-    apiKey: s.visionApiKey,
+    apiKey: BUILTIN_VISION_API_KEY || BUILTIN_TEXT_API_KEY || s.visionApiKey,
     baseURL: s.visionBaseURL || DEFAULTS.visionBaseURL,
     model: s.visionModel || DEFAULTS.visionModel,
   }

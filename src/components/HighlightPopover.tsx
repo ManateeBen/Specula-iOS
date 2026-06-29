@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { Loader2, Sparkles, X } from 'lucide-react'
 import TeachingModePicker from './TeachingModePicker'
 import type { TeachingMode } from '../types'
@@ -38,7 +38,6 @@ export default function HighlightPopover({
   const [streaming, setStreaming] = useState(false)
   const [error, setError] = useState('')
   const [saved, setSaved] = useState(false)
-  const startedRef = useRef(false)
 
   const runExplain = async () => {
     setLoading(true)
@@ -93,13 +92,6 @@ export default function HighlightPopover({
     }
   }
 
-  useEffect(() => {
-    if (startedRef.current) return
-    startedRef.current = true
-    void runExplain()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
   const isNarrow = window.innerWidth < 640
   const popoverWidth = Math.min(380, window.innerWidth - 24)
   const popoverMaxHeight = Math.min(520, window.innerHeight - 32)
@@ -147,6 +139,13 @@ export default function HighlightPopover({
         </blockquote>
 
         <TeachingModePicker value={mode} onChange={setMode} compact />
+
+        {!explanation && !loading && (
+          <button onClick={runExplain} className="btn-primary w-full">
+            <Sparkles className="h-4 w-4" />
+            {action === 'explain-highlight' ? '解释并高亮' : '生成解释'}
+          </button>
+        )}
 
         {loading && !explanation && (
           <div className="flex items-center justify-center gap-2 py-4 text-sm text-gray-500">

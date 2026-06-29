@@ -21,9 +21,12 @@ function mergeModels(fetched: string[], fallback: string[], current?: string): s
   return [...set].sort()
 }
 
+const BUILTIN_TEXT_API_KEY = import.meta.env.VITE_SPECULA_TEXT_API_KEY || ''
+const BUILTIN_VISION_API_KEY =
+  import.meta.env.VITE_SPECULA_VISION_API_KEY || import.meta.env.VITE_SPECULA_TEXT_API_KEY || ''
+
 export default function Settings() {
   const settings = useSettingsStore()
-  const [apiKey, setApiKey] = useState('')
   const [baseURL, setBaseURL] = useState('https://api.deepseek.com')
   const [model, setModel] = useState('deepseek-chat')
   const [textProvider, setTextProvider] = useState<LlmProviderId>('deepseek')
@@ -35,7 +38,6 @@ export default function Settings() {
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [saved, setSaved] = useState(false)
-  const [visionApiKey, setVisionApiKey] = useState('')
   const [visionBaseURL, setVisionBaseURL] = useState('')
   const [visionModel, setVisionModel] = useState('')
   const [visionProvider, setVisionProvider] = useState<VisionProviderId>('dashscope')
@@ -47,27 +49,25 @@ export default function Settings() {
 
   useEffect(() => {
     if (settings.loaded) {
-      setApiKey(settings.apiKey)
       setBaseURL(settings.baseURL || 'https://api.deepseek.com')
       setModel(settings.model)
       setTextProvider(detectTextProvider(settings.baseURL, settings.model))
       setTeachingMode(settings.defaultTeachingMode)
       setDarkMode(settings.darkMode)
-      setVisionApiKey(settings.visionApiKey)
       setVisionBaseURL(settings.visionBaseURL)
       setVisionModel(settings.visionModel)
       setVisionProvider(detectVisionProvider(settings.visionBaseURL))
     }
-  }, [settings.loaded, settings.apiKey, settings.baseURL, settings.model, settings.visionBaseURL])
+  }, [settings.loaded, settings.baseURL, settings.model, settings.visionBaseURL])
 
   const fetchTextModels = useCallback(async () => {
-    if (!apiKey.trim() || !baseURL.trim()) {
+    if (!BUILTIN_TEXT_API_KEY || !baseURL.trim()) {
       setTextModels(getTextFallbackModels(textProvider))
       return
     }
     setTextModelsLoading(true)
     setTextModelsError('')
-    const res = await window.specula.settings.listTextModels({ apiKey, baseURL })
+    const res = await window.specula.settings.listTextModels({ apiKey: BUILTIN_TEXT_API_KEY, baseURL })
     const fallback = getTextFallbackModels(textProvider)
     if (res.ok && res.models.length > 0) {
       setTextModels(mergeModels(res.models, fallback, model))
@@ -76,17 +76,17 @@ export default function Settings() {
       setTextModelsError(res.message ? `${res.message}，已显示预设模型` : '已显示预设模型')
     }
     setTextModelsLoading(false)
-  }, [apiKey, baseURL, textProvider, model])
+  }, [baseURL, textProvider, model])
 
   const fetchVisionModels = useCallback(async () => {
-    if (!visionApiKey.trim() || !visionBaseURL.trim()) {
+    if (!BUILTIN_VISION_API_KEY || !visionBaseURL.trim()) {
       setVisionModels(getVisionFallbackModels(visionProvider))
       return
     }
     setVisionModelsLoading(true)
     setVisionModelsError('')
     const res = await window.specula.settings.listVisionModels({
-      apiKey: visionApiKey,
+      apiKey: BUILTIN_VISION_API_KEY,
       baseURL: visionBaseURL,
     })
     const fallback = getVisionFallbackModels(visionProvider)
@@ -97,25 +97,25 @@ export default function Settings() {
       setVisionModelsError(res.message ? `${res.message}，已显示预设模型` : '已显示预设模型')
     }
     setVisionModelsLoading(false)
-  }, [visionApiKey, visionBaseURL, visionProvider, visionModel])
+  }, [visionBaseURL, visionProvider, visionModel])
 
   useEffect(() => {
-    if (!apiKey.trim() || !baseURL.trim()) {
+    if (!BUILTIN_TEXT_API_KEY || !baseURL.trim()) {
       setTextModels(getTextFallbackModels(textProvider))
       return
     }
     const t = setTimeout(() => void fetchTextModels(), 500)
     return () => clearTimeout(t)
-  }, [apiKey, baseURL, textProvider, fetchTextModels])
+  }, [baseURL, textProvider, fetchTextModels])
 
   useEffect(() => {
-    if (!visionApiKey.trim() || !visionBaseURL.trim()) {
+    if (!BUILTIN_VISION_API_KEY || !visionBaseURL.trim()) {
       setVisionModels(getVisionFallbackModels(visionProvider))
       return
     }
     const t = setTimeout(() => void fetchVisionModels(), 500)
     return () => clearTimeout(t)
-  }, [visionApiKey, visionBaseURL, visionProvider, fetchVisionModels])
+  }, [visionBaseURL, visionProvider, fetchVisionModels])
 
   const handleTextProviderChange = (id: LlmProviderId) => {
     setTextProvider(id)
@@ -139,12 +139,10 @@ export default function Settings() {
 
   const handleSave = async () => {
     await settings.update({
-      apiKey,
       baseURL,
       model,
       defaultTeachingMode: teachingMode,
       darkMode,
-      visionApiKey,
       visionBaseURL,
       visionModel,
     })
@@ -155,7 +153,7 @@ export default function Settings() {
   const handleTest = async () => {
     setTesting(true)
     setTestResult(null)
-    await settings.update({ apiKey, baseURL, model })
+    await settings.update({ baseURL, model })
     const result = await window.specula.settings.testConnection()
     setTestResult(result)
     setTesting(false)
@@ -164,7 +162,7 @@ export default function Settings() {
   const handleVisionTest = async () => {
     setVisionTesting(true)
     setVisionTestResult(null)
-    await settings.update({ visionApiKey, visionBaseURL, visionModel })
+    await settings.update({ visionBaseURL, visionModel })
     const result = await window.specula.settings.testVision()
     setVisionTestResult(result)
     setVisionTesting(false)
@@ -172,10 +170,10 @@ export default function Settings() {
 
   const textPreset = TEXT_LLM_PROVIDERS.find((p) => p.id === textProvider)
   const visionPreset = VISION_LLM_PROVIDERS.find((p) => p.id === visionProvider)
-  const canTestText = !!apiKey.trim() && !!baseURL.trim() && !!model.trim()
-  const canTestVision = !!visionApiKey.trim() && !!visionBaseURL.trim() && !!visionModel.trim()
-  const canFetchText = !!apiKey.trim() && !!baseURL.trim()
-  const canFetchVision = !!visionApiKey.trim() && !!visionBaseURL.trim()
+  const canTestText = !!BUILTIN_TEXT_API_KEY && !!baseURL.trim() && !!model.trim()
+  const canTestVision = !!BUILTIN_VISION_API_KEY && !!visionBaseURL.trim() && !!visionModel.trim()
+  const canFetchText = !!BUILTIN_TEXT_API_KEY && !!baseURL.trim()
+  const canFetchVision = !!BUILTIN_VISION_API_KEY && !!visionBaseURL.trim()
 
   return (
     <div className="h-full overflow-y-auto p-6">
@@ -190,7 +188,7 @@ export default function Settings() {
               <h2 className="font-medium">文本模型（划线解释 / 测验 / 薄弱点）</h2>
             </div>
             <p className="mb-4 text-xs text-gray-500">
-              支持 DeepSeek、OpenAI、阿里云百炼、智谱 GLM 等 OpenAI 兼容接口。填写 API Key 后可下拉选择模型。
+              使用应用内置凭据，用户无需配置 API Key。可按需选择服务商与模型。
             </p>
 
             <div className="space-y-3">
@@ -210,16 +208,6 @@ export default function Settings() {
                 {textPreset?.hint && (
                   <p className="mt-1 text-[11px] text-gray-400">{textPreset.hint}</p>
                 )}
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-gray-500">API Key</label>
-                <input
-                  type="password"
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  className="input"
-                  placeholder="sk-..."
-                />
               </div>
               <div>
                 <label className="mb-1 block text-xs font-medium text-gray-500">Base URL</label>
@@ -281,7 +269,7 @@ export default function Settings() {
               <h2 className="font-medium">视觉模型（EPUB 图片解释）</h2>
             </div>
             <p className="mb-4 text-xs text-gray-500">
-              图片讲解需多模态模型（如 Qwen-VL、GPT-4o、智谱 GLM-4V）。填写 API Key 后可下拉选择。
+              图片讲解使用应用内置多模态模型凭据，用户无需配置 API Key。
             </p>
             <div className="space-y-3">
               <div>
@@ -300,16 +288,6 @@ export default function Settings() {
                 {visionPreset?.hint && (
                   <p className="mt-1 text-[11px] text-gray-400">{visionPreset.hint}</p>
                 )}
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-gray-500">API Key</label>
-                <input
-                  type="password"
-                  value={visionApiKey}
-                  onChange={(e) => setVisionApiKey(e.target.value)}
-                  className="input"
-                  placeholder="sk-..."
-                />
               </div>
               <div>
                 <label className="mb-1 block text-xs font-medium text-gray-500">Base URL</label>
