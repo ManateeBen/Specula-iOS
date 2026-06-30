@@ -478,6 +478,17 @@
 /* PDF viewer */
 .pdf-viewer-container {
   @apply h-full;
+  padding-bottom: calc(max(env(safe-area-inset-bottom), 18px) + 5.5rem);
+}
+.pdf-text-layer {
+  -webkit-user-select: text;
+  user-select: text;
+}
+.pdf-text-layer span {
+  -webkit-user-select: text;
+  cursor: text;
+  line-height: 1;
+  user-select: text;
 }
 
 ::selection {
