@@ -44,6 +44,13 @@ function getReadableContainerWidth(container: HTMLElement | null): number {
   return 390
 }
 
+function getReadableContainerHeight(container: HTMLElement | null): number {
+  const measured = container?.clientHeight || container?.getBoundingClientRect().height || 0
+  if (measured > 0) return measured
+  if (typeof window !== 'undefined' && window.innerHeight > 0) return window.innerHeight
+  return 720
+}
+
 export default function PdfReader({
   data,
   chapters,
@@ -58,6 +65,7 @@ export default function PdfReader({
   const [loading, setLoading] = useState(true)
   const [rendering, setRendering] = useState(false)
   const [error, setError] = useState('')
+  const [zoom, setZoom] = useState(1)
   const [containerWidth, setContainerWidth] = useState(() =>
     typeof window === 'undefined' ? 390 : Math.max(window.innerWidth, 390)
   )
@@ -146,8 +154,14 @@ export default function PdfReader({
 
         const baseViewport = page.getViewport({ scale: 1 })
         const readableWidth = getReadableContainerWidth(containerRef.current)
+        const readableHeight = getReadableContainerHeight(containerRef.current)
         const availableWidth = Math.max((readableWidth || containerWidth) - 32, 280)
-        const scale = availableWidth / baseViewport.width
+        const verticalChrome = readableWidth < 768 ? 190 : 96
+        const availableHeight = Math.max(readableHeight - verticalChrome, 360)
+        const scale = Math.min(
+          availableWidth / baseViewport.width,
+          availableHeight / baseViewport.height
+        ) * zoom
         const viewport = page.getViewport({ scale })
 
         const canvas = canvasRef.current
@@ -211,7 +225,7 @@ export default function PdfReader({
       cancelled = true
       renderTask?.cancel()
     }
-  }, [doc, pageNum, containerWidth])
+  }, [doc, pageNum, containerWidth, zoom])
 
   useEffect(() => {
     if (!doc) return
@@ -236,6 +250,10 @@ export default function PdfReader({
     },
     [chapters, jumpToPage]
   )
+
+  const changeZoom = useCallback((delta: number) => {
+    setZoom((current) => Math.min(1.8, Math.max(0.8, Math.round((current + delta) * 10) / 10)))
+  }, [])
 
   useEffect(() => {
     if (!jumpToChapterId) {
@@ -296,7 +314,15 @@ export default function PdfReader({
         )}
       </div>
 
-      <div className="reader-page-bar absolute inset-x-0 bottom-3 safe-bottom">
+      <div className="reader-page-bar reader-page-bar--pdf absolute inset-x-0 bottom-3 safe-bottom">
+        <button
+          className="reader-page-button reader-page-button--compact"
+          disabled={zoom <= 0.8}
+          type="button"
+          onClick={() => changeZoom(-0.1)}
+        >
+          -
+        </button>
         <button
           className="reader-page-button"
           disabled={pageNum <= 1}
@@ -315,6 +341,14 @@ export default function PdfReader({
           onClick={() => jumpToPage(pageNum + 1)}
         >
           下一页
+        </button>
+        <button
+          className="reader-page-button reader-page-button--compact"
+          disabled={zoom >= 1.8}
+          type="button"
+          onClick={() => changeZoom(0.1)}
+        >
+          {Math.round(zoom * 100)}%
         </button>
       </div>
 
