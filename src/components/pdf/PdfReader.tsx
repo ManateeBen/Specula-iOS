@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as pdfjs from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.js?url'
-import type { Chapter } from '../../types'
+import type { Chapter, ImageSelectionInfo } from '../../types'
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
 
@@ -13,6 +13,7 @@ interface Props {
   onJumpComplete?: () => void
   onProgress: (chapterId: string | null, position: string) => void
   onTextSelect: (text: string, context: string, rect: DOMRect) => void
+  onImageSelect?: (info: ImageSelectionInfo) => void
 }
 
 type PdfDocument = Awaited<ReturnType<typeof pdfjs.getDocument>['promise']>
@@ -59,6 +60,7 @@ export default function PdfReader({
   onJumpComplete,
   onProgress,
   onTextSelect,
+  onImageSelect,
 }: Props) {
   const [doc, setDoc] = useState<PdfDocument | null>(null)
   const [pageNum, setPageNum] = useState(parsePage(initialPosition))
@@ -277,6 +279,21 @@ export default function PdfReader({
     onTextSelect(text, context, rect)
   }, [onTextSelect])
 
+  const handleExplainCurrentPage = useCallback(() => {
+    const canvas = canvasRef.current
+    if (!canvas || !onImageSelect) return
+
+    const rect = canvas.getBoundingClientRect()
+    const chapterTitle = currentChapter?.title || `Page ${pageNum}`
+    onImageSelect({
+      imageDataUrl: canvas.toDataURL('image/png'),
+      imageAltText: `PDF page ${pageNum}`,
+      imageCaption: `PDF 第 ${pageNum} 页`,
+      imageContext: `${chapterTitle}\n${textLayerRef.current?.textContent?.slice(0, 1200) || ''}`,
+      rect,
+    })
+  }, [currentChapter?.title, onImageSelect, pageNum])
+
   if (loading) {
     return <div className="flex h-full items-center justify-center text-gray-500">加载 PDF...</div>
   }
@@ -351,6 +368,16 @@ export default function PdfReader({
           {Math.round(zoom * 100)}%
         </button>
       </div>
+
+      {onImageSelect && (
+        <button
+          className="pdf-image-explain-button"
+          type="button"
+          onClick={handleExplainCurrentPage}
+        >
+          AI识图
+        </button>
+      )}
 
       {currentChapter && (
         <div className="pointer-events-none absolute inset-x-0 top-3 flex justify-center">

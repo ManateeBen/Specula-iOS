@@ -510,6 +510,27 @@
   line-height: 1;
   user-select: text;
 }
+.pdf-image-explain-button {
+  align-items: center;
+  background: rgba(37, 99, 235, 0.94);
+  border: 1px solid rgba(147, 197, 253, 0.4);
+  border-radius: 9999px;
+  bottom: calc(max(env(safe-area-inset-bottom), 18px) + 5rem);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.22);
+  color: #fff;
+  display: inline-flex;
+  font-size: 13px;
+  font-weight: 700;
+  min-height: 40px;
+  padding: 0 14px;
+  position: absolute;
+  right: 16px;
+  touch-action: manipulation;
+  z-index: 22;
+}
+.pdf-image-explain-button:active {
+  transform: translateY(1px);
+}
 
 ::selection {
   @apply bg-yellow-200 dark:bg-yellow-700;

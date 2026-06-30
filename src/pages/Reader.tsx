@@ -370,6 +370,7 @@ export default function Reader() {
                 onJumpComplete={() => setPdfJumpChapterId(null)}
                 onProgress={handleProgress}
                 onTextSelect={handleTextSelect}
+                onImageSelect={handleImageSelect}
               />
             </Suspense>
           )}
