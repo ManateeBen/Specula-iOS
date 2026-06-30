@@ -431,8 +431,9 @@
   gap: 8px;
   justify-content: center;
   padding: 10px 18px;
-  pointer-events: none;
+  pointer-events: auto;
   transition: transform 0.2s ease;
+  z-index: 20;
 }
 .reader-page-button,
 .reader-page-button--toc {
@@ -451,6 +452,7 @@
   height: 44px;
   justify-content: center;
   line-height: 1;
+  touch-action: manipulation;
   width: 76px;
 }
 .reader-page-button--toc {

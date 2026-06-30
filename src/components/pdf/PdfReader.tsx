@@ -16,6 +16,7 @@ interface Props {
 }
 
 type PdfDocument = Awaited<ReturnType<typeof pdfjs.getDocument>['promise']>
+type RenderTask = ReturnType<Awaited<ReturnType<PdfDocument['getPage']>>['render']>
 
 function parsePage(value?: string): number {
   const page = parseInt(value || '1', 10)
@@ -36,6 +37,13 @@ function chapterForPage(chapters: Chapter[], pageNum: number): Chapter | null {
   )
 }
 
+function getReadableContainerWidth(container: HTMLElement | null): number {
+  const measured = container?.clientWidth || container?.getBoundingClientRect().width || 0
+  if (measured > 0) return measured
+  if (typeof window !== 'undefined' && window.innerWidth > 0) return window.innerWidth
+  return 390
+}
+
 export default function PdfReader({
   data,
   chapters,
@@ -50,7 +58,9 @@ export default function PdfReader({
   const [loading, setLoading] = useState(true)
   const [rendering, setRendering] = useState(false)
   const [error, setError] = useState('')
-  const [containerWidth, setContainerWidth] = useState(0)
+  const [containerWidth, setContainerWidth] = useState(() =>
+    typeof window === 'undefined' ? 390 : Math.max(window.innerWidth, 390)
+  )
   const lastJumpRef = useRef<string | null>(null)
   const containerRef = useRef<HTMLDivElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -61,7 +71,12 @@ export default function PdfReader({
 
   useEffect(() => {
     let cancelled = false
-    const loadingTask = pdfjs.getDocument({ data: data.slice() })
+    const loadingTask = pdfjs.getDocument({
+      data: data.slice(),
+      disableFontFace: true,
+      disableWorker: true,
+      useSystemFonts: true,
+    } as Parameters<typeof pdfjs.getDocument>[0])
 
     setLoading(true)
     setError('')
@@ -93,19 +108,33 @@ export default function PdfReader({
     const el = containerRef.current
     if (!el) return
 
-    const update = () => setContainerWidth(el.clientWidth)
+    const update = () => setContainerWidth(getReadableContainerWidth(el))
     update()
+    const frame = window.requestAnimationFrame(update)
 
-    const observer = new ResizeObserver(update)
-    observer.observe(el)
-    return () => observer.disconnect()
+    if ('ResizeObserver' in window) {
+      const observer = new ResizeObserver(update)
+      observer.observe(el)
+      window.addEventListener('resize', update)
+      return () => {
+        window.cancelAnimationFrame(frame)
+        window.removeEventListener('resize', update)
+        observer.disconnect()
+      }
+    }
+
+    window.addEventListener('resize', update)
+    return () => {
+      window.cancelAnimationFrame(frame)
+      window.removeEventListener('resize', update)
+    }
   }, [])
 
   useEffect(() => {
     if (!doc || !containerWidth) return
 
     let cancelled = false
-    let renderTask: { cancel: () => void; promise: Promise<unknown> } | null = null
+    let renderTask: RenderTask | null = null
 
     const render = async () => {
       setRendering(true)
@@ -116,7 +145,8 @@ export default function PdfReader({
         if (cancelled) return
 
         const baseViewport = page.getViewport({ scale: 1 })
-        const availableWidth = Math.max(containerWidth - 32, 280)
+        const readableWidth = getReadableContainerWidth(containerRef.current)
+        const availableWidth = Math.max((readableWidth || containerWidth) - 32, 280)
         const scale = availableWidth / baseViewport.width
         const viewport = page.getViewport({ scale })
 
@@ -136,6 +166,8 @@ export default function PdfReader({
 
         const context = canvas.getContext('2d')
         if (!context) throw new Error('Canvas unavailable')
+        context.setTransform(1, 0, 0, 1, 0, 0)
+        context.clearRect(0, 0, canvas.width, canvas.height)
 
         renderTask = page.render({
           canvasContext: context,
