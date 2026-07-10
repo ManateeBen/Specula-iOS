@@ -4,10 +4,12 @@ import App from './App'
 import './index.css'
 import { initDatabase } from './services/db'
 import { installSpeculaApi } from './services/specula'
+import { seedSampleBooks } from './services/book.service'
 
 async function bootstrap() {
   installSpeculaApi()
   await initDatabase()
+  await seedSampleBooks().catch((err) => console.warn('Failed to seed sample books:', err))
 
   ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>

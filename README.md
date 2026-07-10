@@ -62,3 +62,27 @@ React UI 层（`src/pages/`、`src/components/`）基本保持原样，仍通过
 - `covers/` — 封面图片
 
 设置通过 Capacitor Preferences 存储。
+
+## TestFlight builtin credentials
+
+For TestFlight builds, copy `env.testflight.example` to `.env.local` and fill:
+
+```bash
+VITE_SPECULA_TEXT_API_KEY=...
+VITE_SPECULA_VISION_API_KEY=...
+```
+
+Then build and sync:
+
+```bash
+npm run build
+npx cap sync ios
+```
+
+The keys are not shown in the app settings UI. They are still bundled into the IPA, so this is suitable for controlled TestFlight testing only. For public release, move model calls behind a backend proxy.
+
+The app also bundles one original, redistributable EPUB sample:
+
+```text
+public/sample-books/Specula_Getting_Started.epub
+```

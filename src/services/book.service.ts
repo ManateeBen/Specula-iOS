@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid'
 import JSZip from 'jszip'
 import * as pdfjs from 'pdfjs-dist'
+import { Preferences } from '@capacitor/preferences'
 import {
   readBinaryFile,
   writeBinaryFile,
@@ -19,6 +20,15 @@ pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/build/pdf.worker.min.js',
   import.meta.url
 ).toString()
+
+const SAMPLE_BOOKS_SEEDED_KEY = 'specula_sample_books_seeded_v1'
+const SAMPLE_BOOKS = [
+  {
+    key: 'specula-getting-started',
+    fileName: 'Specula_Getting_Started.epub',
+    assetPath: 'sample-books/Specula_Getting_Started.epub',
+  },
+] as const
 
 function parseXml(text: string): Document {
   return new DOMParser().parseFromString(text, 'application/xml')
@@ -441,6 +451,16 @@ export async function importBookFromStoragePath(filePath: string, originalName?:
   }
 }
 
+async function readBundledAsset(assetPath: string): Promise<Uint8Array> {
+  const base = import.meta.env.BASE_URL || './'
+  const normalizedBase = base.endsWith('/') ? base : `${base}/`
+  const response = await fetch(`${normalizedBase}${assetPath}`)
+  if (!response.ok) {
+    throw new Error(`无法读取内置书籍：${assetPath}`)
+  }
+  return new Uint8Array(await response.arrayBuffer())
+}
+
 async function importBookData(fileData: Uint8Array, fileName: string): Promise<Book> {
   const name = fileName.toLowerCase()
   if (!name.endsWith('.epub') && !name.endsWith('.pdf')) {
@@ -494,6 +514,21 @@ async function importBookData(fileData: Uint8Array, fileName: string): Promise<B
   const row = queryOne<BookRow>('SELECT * FROM books WHERE id = ?', [bookId])
   if (!row) throw new Error('导入书籍失败')
   return rowToBook(row)
+}
+
+export async function seedSampleBooks(): Promise<void> {
+  const seeded = await Preferences.get({ key: SAMPLE_BOOKS_SEEDED_KEY })
+  if (seeded.value === '1') return
+
+  for (const sample of SAMPLE_BOOKS) {
+    const existing = queryOne<BookRow>('SELECT * FROM books WHERE title = ?', ['Specula Getting Started'])
+    if (existing) continue
+
+    const data = await readBundledAsset(sample.assetPath)
+    await importBookData(data, sample.fileName)
+  }
+
+  await Preferences.set({ key: SAMPLE_BOOKS_SEEDED_KEY, value: '1' })
 }
 
 export function listBooks(): Book[] {

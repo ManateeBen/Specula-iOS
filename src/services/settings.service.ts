@@ -16,12 +16,12 @@ const KEYS = {
 } as const
 
 const DEFAULTS: AppSettings = {
-  apiKey: BUILTIN_TEXT_API_KEY,
+  apiKey: '',
   baseURL: 'https://api.deepseek.com',
   model: 'deepseek-chat',
   defaultTeachingMode: 'direct',
   darkMode: false,
-  visionApiKey: BUILTIN_VISION_API_KEY || BUILTIN_TEXT_API_KEY,
+  visionApiKey: '',
   visionBaseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
   visionModel: 'qwen-vl-max',
 }
