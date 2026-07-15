@@ -35,6 +35,30 @@ export interface Chapter {
   endRef: string
 }
 
+export type QuickBrowseStatus = 'unanswered' | 'confident' | 'gap' | 'repaired'
+
+export interface ChapterDigest {
+  chapterId: string
+  chapterTitle: string
+  chapterOrder: number
+  title: string
+  summary: string
+  keyTerms: string[]
+  question: string
+  answerAnchor: string
+  status: QuickBrowseStatus
+  answeredAt: string | null
+  updatedAt: string
+}
+
+export interface QuickBrowseProgress {
+  bookId: string
+  digests: ChapterDigest[]
+  generationComplete: boolean
+  generatedCount: number
+  eligibleChapterCount: number
+}
+
 export interface ReadingProgress {
   bookId: string
   chapterId: string | null
@@ -195,6 +219,12 @@ export interface AnalyzeWeakPointsRequest {
   teachingMode: TeachingMode
 }
 
+export interface GenerateDigestRequest {
+  chapterId: string
+  chapterTitle: string
+  chapterContent: string
+}
+
 export interface SpeculaAPI {
   books: {
     import: () => Promise<Book | null>
@@ -210,6 +240,14 @@ export interface SpeculaAPI {
   chapters: {
     listByBook: (bookId: string) => Promise<Chapter[]>
     getContent: (chapterId: string) => Promise<string>
+  }
+  quickBrowse: {
+    getProgress: (bookId: string) => Promise<QuickBrowseProgress>
+    prepare: (bookId: string, chapterId: string) => Promise<QuickBrowseProgress>
+    answer: (bookId: string, chapterId: string, status: 'confident' | 'gap') => Promise<ChapterDigest>
+    repair: (bookId: string, chapterId: string) => Promise<ChapterDigest>
+    reset: (bookId: string, chapterId: string) => Promise<void>
+    track: (bookId: string, eventName: string, chapterId?: string, properties?: Record<string, unknown>) => Promise<void>
   }
   epub: {
     getChapterHtml: (bookId: string, href: string) => Promise<string>

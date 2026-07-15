@@ -489,6 +489,16 @@
     background-color: transparent;
   }
 }
+.epub-content .gap-anchor-highlight {
+  background: rgba(96, 165, 250, 0.2);
+  border-radius: 4px;
+  box-shadow: inset 3px 0 0 #0c8ce9;
+  padding-left: 0.5rem;
+  transition: background-color 0.2s ease;
+}
+.dark .epub-content .gap-anchor-highlight {
+  background: rgba(37, 99, 235, 0.24);
+}
 
 /* PDF viewer */
 .pdf-viewer-container {

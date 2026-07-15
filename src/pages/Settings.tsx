@@ -184,7 +184,7 @@ export default function Settings() {
   const canFetchVision = !!BUILTIN_VISION_API_KEY && !!visionBaseURL.trim()
 
   return (
-    <div className="h-full overflow-y-auto p-6">
+    <div className="h-full overflow-y-auto p-6" aria-label="settings-page">
       <div className="mx-auto max-w-lg">
         <h1 className="mb-1 text-2xl font-bold">设置</h1>
         <p className="mb-6 text-sm text-gray-500">配置 AI 模型与阅读偏好</p>

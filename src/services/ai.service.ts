@@ -27,6 +27,8 @@ import type {
   GenerateQuizRequest,
   GradeQuizRequest,
   AnalyzeWeakPointsRequest,
+  GenerateDigestRequest,
+  ChapterDigest,
   QuizQuestion,
   Quiz,
   WeakPoint,
@@ -71,6 +73,102 @@ const MAX_TOKENS_EXPLAIN = 1024
 const MAX_TOKENS_QUIZ = 4096
 const MAX_TOKENS_GRADE = 1024
 const MAX_TOKENS_WEAK_POINTS = 4096
+const MAX_TOKENS_DIGEST = 700
+
+type GeneratedDigest = Pick<ChapterDigest, 'title' | 'summary' | 'keyTerms' | 'question' | 'answerAnchor'>
+
+function normalizeGeneratedDigest(raw: unknown): GeneratedDigest | null {
+  if (!raw || typeof raw !== 'object') return null
+  const value = raw as Record<string, unknown>
+  const title = typeof value.title === 'string' ? value.title.trim() : ''
+  const summary = typeof value.summary === 'string' ? value.summary.trim() : ''
+  const question = typeof value.question === 'string' ? value.question.trim() : ''
+  const answerAnchor = typeof value.answer_anchor === 'string' ? value.answer_anchor.trim() : ''
+  const keyTerms = Array.isArray(value.key_terms)
+    ? value.key_terms.filter((term): term is string => typeof term === 'string').map((term) => term.trim()).filter(Boolean).slice(0, 5)
+    : []
+  if (!title || !summary || !question || !answerAnchor) return null
+  return { title, summary, keyTerms, question, answerAnchor }
+}
+
+function locallyValidateDigest(digest: GeneratedDigest, chapterContent: string): string | null {
+  const summaryLength = Array.from(digest.summary.replace(/\s+/g, '')).length
+  if (summaryLength > 120) return `summary 超过 120 字（当前 ${summaryLength} 字）`
+  const sentences = digest.summary.split(/[。！？!?]+/).map((part) => part.trim()).filter(Boolean)
+  if (sentences.length < 3 || sentences.length > 5) return 'summary 必须为 3-5 句'
+  if (Array.from(digest.answerAnchor).length < 15 || Array.from(digest.answerAnchor).length > 80) {
+    return 'answer_anchor 长度必须在 15-80 字符之间'
+  }
+  if (!chapterContent.includes(digest.answerAnchor)) return 'answer_anchor 未在章节原文中精确匹配'
+  return null
+}
+
+export async function generateChapterDigest(req: GenerateDigestRequest): Promise<GeneratedDigest | null> {
+  const client = await createClient()
+  const model = await getModel()
+  const chapterContent = req.chapterContent.slice(0, 18000)
+  let retryReason = ''
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const response = await client.chat.completions.create({
+      model,
+      messages: [
+        {
+          role: 'system',
+          content: `你为阅读 App 生成“快速浏览”章节卡。summary 只讲结论（what），绝不解释原因；question 只追问为什么、凭什么、代价或成立条件（why）。读者看完 summary 应觉得自己懂了，但不能仅凭 summary 回答 question。answer_anchor 必须从原文逐字复制，是能回答 question 的连续片段。只输出 JSON：{"title":"一句话主旨","summary":"3-5句且不超过120字","key_terms":["术语"],"question":"机制拷问","answer_anchor":"原文连续片段"}`,
+        },
+        {
+          role: 'user',
+          content: `章节：${req.chapterTitle}\n${retryReason ? `上次不合格原因：${retryReason}\n请修正后重生成。\n` : ''}\n章节原文：\n${chapterContent}`,
+        },
+      ],
+      temperature: attempt === 0 ? 0.45 : 0.7,
+      max_tokens: MAX_TOKENS_DIGEST,
+    })
+
+    let digest: GeneratedDigest | null = null
+    try {
+      digest = normalizeGeneratedDigest(parseJsonFromResponse<unknown>(response.choices[0]?.message?.content || ''))
+    } catch {
+      retryReason = '返回内容不是合法 JSON'
+      continue
+    }
+    if (!digest) {
+      retryReason = '字段缺失'
+      continue
+    }
+    const localError = locallyValidateDigest(digest, req.chapterContent)
+    if (localError) {
+      retryReason = localError
+      continue
+    }
+
+    const judge = await client.chat.completions.create({
+      model,
+      messages: [
+        {
+          role: 'system',
+          content: '你是严格的信息泄漏校验器。判断仅凭 summary 是否足以回答 question。只输出 JSON：{"answerable":true或false,"reason":"原因"}。若 summary 已包含问题要求的原因、机制、代价或条件，answerable 为 true。',
+        },
+        { role: 'user', content: JSON.stringify({ summary: digest.summary, question: digest.question }) },
+      ],
+      temperature: 0,
+      max_tokens: 160,
+    })
+    try {
+      const result = parseJsonFromResponse<{ answerable?: boolean; reason?: string }>(judge.choices[0]?.message?.content || '')
+      if (result.answerable) {
+        retryReason = `仅凭 summary 即可回答 question：${result.reason || '机制信息泄漏'}`
+        continue
+      }
+    } catch {
+      retryReason = '独立问题校验失败'
+      continue
+    }
+    return digest
+  }
+  return null
+}
 
 export async function explainImageStream(req: ImageExplainRequest): Promise<void> {
   try {

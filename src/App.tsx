@@ -13,6 +13,7 @@ const Quiz = lazy(() => import('./pages/Quiz'))
 const Review = lazy(() => import('./pages/Review'))
 const QuizHistory = lazy(() => import('./pages/QuizHistory'))
 const Settings = lazy(() => import('./pages/Settings'))
+const QuickBrowse = lazy(() => import('./pages/QuickBrowse'))
 
 function RouteFallback() {
   return <div className="flex h-full items-center justify-center text-gray-500">加载中...</div>
@@ -79,6 +80,7 @@ export default function App() {
           <Route element={<Layout />}>
             <Route index element={<Library />} />
             <Route path="reader/:bookId" element={<Reader />} />
+            <Route path="quick-browse/:bookId/:chapterId" element={<QuickBrowse />} />
             <Route path="quiz/:bookId/:chapterId" element={<Quiz />} />
             <Route path="review/:bookId/:chapterId" element={<Review />} />
             <Route path="quiz-history/:bookId/:chapterId" element={<QuizHistory />} />

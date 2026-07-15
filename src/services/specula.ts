@@ -12,6 +12,7 @@ import type {
 import * as bookService from './book.service'
 import * as aiService from './ai.service'
 import * as settingsService from './settings.service'
+import * as quickBrowseService from './quickBrowse.service'
 import { getFileUrl } from './storage'
 import { onExplainChunk } from './streamEvents'
 
@@ -34,6 +35,20 @@ export const speculaApi: SpeculaAPI = {
   chapters: {
     listByBook: (bookId) => Promise.resolve(bookService.listChapters(bookId)),
     getContent: (chapterId) => bookService.getChapterContent(chapterId),
+  },
+  quickBrowse: {
+    getProgress: (bookId) => Promise.resolve(quickBrowseService.getProgress(bookId)),
+    prepare: (bookId, chapterId) => quickBrowseService.prepare(bookId, chapterId),
+    answer: (bookId, chapterId, status) => Promise.resolve(quickBrowseService.answer(bookId, chapterId, status)),
+    repair: (bookId, chapterId) => Promise.resolve(quickBrowseService.repair(bookId, chapterId)),
+    reset: (bookId, chapterId) => {
+      quickBrowseService.reset(bookId, chapterId)
+      return Promise.resolve()
+    },
+    track: (bookId, eventName, chapterId, properties) => {
+      quickBrowseService.track(bookId, eventName, chapterId, properties)
+      return Promise.resolve()
+    },
   },
   epub: {
     getChapterHtml: (bookId, href) => bookService.getEpubChapterHtml(bookId, href),

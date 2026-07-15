@@ -8,7 +8,7 @@ const navItems = [
 
 export default function Layout() {
   const location = useLocation()
-  const isReader = location.pathname.startsWith('/reader')
+  const isReader = location.pathname.startsWith('/reader') || location.pathname.startsWith('/quick-browse')
 
   if (isReader) {
     return <Outlet />
@@ -28,6 +28,7 @@ export default function Layout() {
               <Link
                 key={to}
                 to={to}
+                aria-label={to === '/' ? 'library-tab' : 'settings-tab'}
                 className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm transition ${
                   active
                     ? 'bg-specula-50 text-specula-700 dark:bg-specula-900/30 dark:text-specula-400'
@@ -53,6 +54,7 @@ export default function Layout() {
             <Link
               key={to}
               to={to}
+              aria-label={to === '/' ? 'library-tab' : 'settings-tab'}
               className={`flex flex-1 flex-col items-center gap-0.5 py-2 text-xs transition ${
                 active
                   ? 'text-specula-600 dark:text-specula-400'

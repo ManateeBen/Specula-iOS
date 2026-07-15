@@ -63,7 +63,7 @@ export default function Library() {
   }
 
   return (
-    <div className="h-full overflow-y-auto p-4 md:p-6">
+    <div className="h-full overflow-y-auto p-4 md:p-6" aria-label="library-page">
       <div className="mx-auto max-w-6xl">
         <div className="mb-6 flex items-center justify-between">
           <div>
@@ -72,7 +72,12 @@ export default function Library() {
               导入 PDF 或 EPUB 电子书，开启 AI 辅助阅读
             </p>
           </div>
-          <button onClick={handleImport} disabled={importing} className="btn-primary">
+          <button
+            onClick={handleImport}
+            disabled={importing}
+            className="btn-primary"
+            aria-label="import-book"
+          >
             <Plus className="h-4 w-4" />
             {importing ? '导入中...' : '导入书籍'}
           </button>
@@ -106,6 +111,7 @@ export default function Library() {
               <Link
                 key={book.id}
                 to={`/reader/${book.id}`}
+                aria-label={`book-${book.title}`}
                 className="card group overflow-hidden transition hover:shadow-md"
               >
                 <div className="relative aspect-[3/4] bg-gray-100 dark:bg-gray-800">

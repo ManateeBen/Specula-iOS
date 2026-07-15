@@ -116,9 +116,40 @@ export async function initDatabase(): Promise<SqlJsDatabase> {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS quick_browse_digests (
+      chapter_id TEXT PRIMARY KEY REFERENCES chapters(id) ON DELETE CASCADE,
+      book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      key_terms_json TEXT NOT NULL DEFAULT '[]',
+      question TEXT NOT NULL,
+      answer_anchor TEXT NOT NULL,
+      generation_status TEXT NOT NULL DEFAULT 'ready',
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS quick_browse_answers (
+      book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+      chapter_id TEXT NOT NULL REFERENCES chapters(id) ON DELETE CASCADE,
+      status TEXT NOT NULL CHECK(status IN ('confident', 'gap', 'repaired')),
+      answered_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (book_id, chapter_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS analytics_events (
+      id TEXT PRIMARY KEY,
+      book_id TEXT,
+      chapter_id TEXT,
+      event_name TEXT NOT NULL,
+      properties_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE INDEX IF NOT EXISTS idx_chapters_book ON chapters(book_id);
     CREATE INDEX IF NOT EXISTS idx_highlights_book ON highlights(book_id);
     CREATE INDEX IF NOT EXISTS idx_quizzes_chapter ON quizzes(chapter_id);
+    CREATE INDEX IF NOT EXISTS idx_quick_browse_book ON quick_browse_digests(book_id);
+    CREATE INDEX IF NOT EXISTS idx_analytics_event_name ON analytics_events(event_name);
   `)
 
   try { db.run(`ALTER TABLE highlights ADD COLUMN source TEXT NOT NULL DEFAULT 'user'`) } catch { /* exists */ }

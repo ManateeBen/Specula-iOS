@@ -275,6 +275,7 @@ interface Props {
   onToggleChrome?: () => void
   initialPosition?: string
   highlightExcerpt?: string | null
+  gapAnchorExcerpt?: string | null
   highlights?: Highlight[]
   onProgress: (chapterId: string | null, position: string) => void
   onTextSelect: (text: string, context: string, rect: DOMRect) => void
@@ -298,6 +299,7 @@ export default function EpubReader({
   onToggleChrome,
   initialPosition,
   highlightExcerpt,
+  gapAnchorExcerpt,
   highlights,
   onProgress,
   onTextSelect,
@@ -353,6 +355,14 @@ export default function EpubReader({
     lockedScrollTop: null,
     previousOverflowY: null,
     suppressClickUntil: 0,
+  })
+  const swipeRef = useRef({
+    startX: 0,
+    startY: 0,
+    lastX: 0,
+    lastY: 0,
+    startedAt: 0,
+    tracking: false,
   })
   // Debounce timer for persisting the intra-chapter scroll position.
   const scrollSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -494,6 +504,18 @@ export default function EpubReader({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [html, highlightExcerpt, loading, chapterHighlights])
 
+  useEffect(() => {
+    if (!gapAnchorExcerpt || loading) return
+    const el = contentRef.current
+    if (!el) return
+    const range = locateExcerpt(el, gapAnchorExcerpt)
+    const target = (range?.startContainer.parentElement as HTMLElement) || null
+    if (!target) return
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    target.classList.add('gap-anchor-highlight')
+    return () => target.classList.remove('gap-anchor-highlight')
+  }, [html, gapAnchorExcerpt, loading, chapterHighlights])
+
   // Persist intra-chapter scroll position as a fraction (debounced).
   const handleScroll = () => {
     const el = scrollRef.current
@@ -586,6 +608,28 @@ export default function EpubReader({
   const goNext = () => {
     clearSelectionState()
     if (idx >= 0 && idx < chapters.length - 1) onChapterChange(chapters[idx + 1].id)
+  }
+
+  const finishSwipeIfNeeded = () => {
+    const swipe = swipeRef.current
+    swipe.tracking = false
+    if (!isMobile || customSelectionRef.current.selecting || selInfoRef.current) return false
+
+    const dx = swipe.lastX - swipe.startX
+    const dy = swipe.lastY - swipe.startY
+    const absX = Math.abs(dx)
+    const absY = Math.abs(dy)
+    const elapsed = Date.now() - swipe.startedAt
+    const isHorizontalSwipe = absX >= 72 && absX > absY * 1.35 && absY <= 90 && elapsed <= 900
+    if (!isHorizontalSwipe) return false
+
+    customSelectionRef.current.suppressClickUntil = Date.now() + 450
+    if (dx < 0) {
+      goNext()
+    } else {
+      goPrev()
+    }
+    return true
   }
 
   // Pull the display text, the best on-screen rect, and surrounding context out
@@ -850,6 +894,14 @@ export default function EpubReader({
     const target = e.target as HTMLElement
     if (target.closest('img, a, button, .selection-menu')) return
     const touch = e.touches[0]
+    swipeRef.current = {
+      startX: touch.clientX,
+      startY: touch.clientY,
+      lastX: touch.clientX,
+      lastY: touch.clientY,
+      startedAt: Date.now(),
+      tracking: true,
+    }
     customSelectionRef.current.startX = touch.clientX
     customSelectionRef.current.startY = touch.clientY
     customSelectionRef.current.lastX = touch.clientX
@@ -883,6 +935,10 @@ export default function EpubReader({
   const handleCustomSelectionTouchMove = (e: React.TouchEvent) => {
     if (!isMobile || e.touches.length !== 1) return
     const touch = e.touches[0]
+    if (swipeRef.current.tracking) {
+      swipeRef.current.lastX = touch.clientX
+      swipeRef.current.lastY = touch.clientY
+    }
     const sel = customSelectionRef.current
     if (!sel.selecting) {
       const dx = touch.clientX - sel.startX
@@ -924,6 +980,8 @@ export default function EpubReader({
       sel.anchorRange = null
       if (range) finalizeMobileSelection(range)
       else clearSelectionState()
+    } else if (finishSwipeIfNeeded()) {
+      e.preventDefault()
     } else {
       sel.selecting = false
       sel.anchorRange = null
