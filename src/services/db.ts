@@ -136,6 +136,36 @@ export async function initDatabase(): Promise<SqlJsDatabase> {
       PRIMARY KEY (book_id, chapter_id)
     );
 
+    CREATE TABLE IF NOT EXISTS quick_browse_cards (
+      id TEXT PRIMARY KEY,
+      chapter_id TEXT NOT NULL REFERENCES chapters(id) ON DELETE CASCADE,
+      book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+      card_index INTEGER NOT NULL,
+      title TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      key_terms_json TEXT NOT NULL DEFAULT '[]',
+      question TEXT NOT NULL,
+      answer_anchor TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(chapter_id, card_index)
+    );
+
+    CREATE TABLE IF NOT EXISTS quick_browse_card_answers (
+      book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+      card_id TEXT NOT NULL REFERENCES quick_browse_cards(id) ON DELETE CASCADE,
+      status TEXT NOT NULL CHECK(status IN ('confident', 'gap', 'repaired')),
+      answered_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (book_id, card_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS quick_browse_generations (
+      chapter_id TEXT PRIMARY KEY REFERENCES chapters(id) ON DELETE CASCADE,
+      book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+      status TEXT NOT NULL CHECK(status IN ('generating', 'ready', 'failed')),
+      error_message TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE TABLE IF NOT EXISTS analytics_events (
       id TEXT PRIMARY KEY,
       book_id TEXT,
@@ -149,6 +179,7 @@ export async function initDatabase(): Promise<SqlJsDatabase> {
     CREATE INDEX IF NOT EXISTS idx_highlights_book ON highlights(book_id);
     CREATE INDEX IF NOT EXISTS idx_quizzes_chapter ON quizzes(chapter_id);
     CREATE INDEX IF NOT EXISTS idx_quick_browse_book ON quick_browse_digests(book_id);
+    CREATE INDEX IF NOT EXISTS idx_quick_browse_cards_chapter ON quick_browse_cards(chapter_id, card_index);
     CREATE INDEX IF NOT EXISTS idx_analytics_event_name ON analytics_events(event_name);
   `)
 

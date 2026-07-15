@@ -164,7 +164,7 @@ export default function Reader() {
     let cancelled = false
     window.specula.quickBrowse.getProgress(bookId).then((quickProgress) => {
       if (cancelled) return
-      const gap = quickProgress.digests.find((item) => item.chapterId === gapId && item.status === 'gap') || null
+      const gap = quickProgress.digests.find((item) => item.id === gapId && item.status === 'gap') || null
       setActiveGap(gap)
       gapOpenedAt.current = Date.now()
     })
@@ -272,7 +272,7 @@ export default function Reader() {
     await window.specula.quickBrowse.track(bookId, 'quick_browse_gap_reading_completed', activeGap.chapterId, {
       dwellMs: Math.max(0, Date.now() - gapOpenedAt.current),
     })
-    await window.specula.quickBrowse.repair(bookId, activeGap.chapterId)
+    await window.specula.quickBrowse.repair(bookId, activeGap.id)
     window.location.hash = `/quick-browse/${bookId}/${activeGap.chapterId}`
   }, [activeGap, bookId])
   if (error) {

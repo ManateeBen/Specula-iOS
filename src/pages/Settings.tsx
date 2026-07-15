@@ -1,321 +1,34 @@
-import { useState, useEffect, useCallback } from 'react'
-import { Wifi, Moon, Sun, CheckCircle, XCircle, Loader2, Image as ImageIcon, MessageSquare } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Moon, Sun } from 'lucide-react'
 import TeachingModePicker from '../components/TeachingModePicker'
-import ModelSelect from '../components/ModelSelect'
 import { useSettingsStore } from '../stores/settingsStore'
 import type { TeachingMode } from '../types'
-import {
-  TEXT_LLM_PROVIDERS,
-  VISION_LLM_PROVIDERS,
-  detectTextProvider,
-  detectVisionProvider,
-  getTextFallbackModels,
-  getVisionFallbackModels,
-  type LlmProviderId,
-  type VisionProviderId,
-} from '../constants/llmProviders'
-
-function mergeModels(fetched: string[], fallback: string[], current?: string): string[] {
-  const set = new Set<string>([...fallback, ...fetched])
-  if (current?.trim()) set.add(current.trim())
-  return [...set].sort()
-}
-
-const BUILTIN_TEXT_API_KEY = import.meta.env.VITE_SPECULA_TEXT_API_KEY || ''
-const BUILTIN_VISION_API_KEY =
-  import.meta.env.VITE_SPECULA_VISION_API_KEY || import.meta.env.VITE_SPECULA_TEXT_API_KEY || ''
 
 export default function Settings() {
   const settings = useSettingsStore()
-  const [baseURL, setBaseURL] = useState('https://api.deepseek.com')
-  const [model, setModel] = useState('deepseek-chat')
-  const [textProvider, setTextProvider] = useState<LlmProviderId>('deepseek')
-  const [textModels, setTextModels] = useState<string[]>([])
-  const [textModelsLoading, setTextModelsLoading] = useState(false)
-  const [textModelsError, setTextModelsError] = useState('')
   const [teachingMode, setTeachingMode] = useState<TeachingMode>('direct')
   const [darkMode, setDarkMode] = useState(false)
-  const [testing, setTesting] = useState(false)
-  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [saved, setSaved] = useState(false)
-  const [visionBaseURL, setVisionBaseURL] = useState('')
-  const [visionModel, setVisionModel] = useState('')
-  const [visionProvider, setVisionProvider] = useState<VisionProviderId>('dashscope')
-  const [visionModels, setVisionModels] = useState<string[]>([])
-  const [visionModelsLoading, setVisionModelsLoading] = useState(false)
-  const [visionModelsError, setVisionModelsError] = useState('')
-  const [visionTesting, setVisionTesting] = useState(false)
-  const [visionTestResult, setVisionTestResult] = useState<{ ok: boolean; message: string } | null>(null)
 
   useEffect(() => {
-    if (settings.loaded) {
-      const detectedTextProvider = detectTextProvider(settings.baseURL, settings.model)
-      const textPreset =
-        TEXT_LLM_PROVIDERS.find((p) => p.id === detectedTextProvider && p.id !== 'custom') ??
-        TEXT_LLM_PROVIDERS[0]
-      setBaseURL(textPreset.baseURL)
-      setModel(settings.model)
-      setTextProvider(textPreset.id)
-      setTeachingMode(settings.defaultTeachingMode)
-      setDarkMode(settings.darkMode)
-      const detectedVisionProvider = detectVisionProvider(settings.visionBaseURL)
-      const visionPreset =
-        VISION_LLM_PROVIDERS.find((p) => p.id === detectedVisionProvider && p.id !== 'custom') ??
-        VISION_LLM_PROVIDERS[0]
-      setVisionBaseURL(visionPreset.baseURL)
-      setVisionModel(settings.visionModel)
-      setVisionProvider(visionPreset.id)
-    }
-  }, [settings.loaded, settings.baseURL, settings.model, settings.visionBaseURL])
-
-  const fetchTextModels = useCallback(async () => {
-    if (!BUILTIN_TEXT_API_KEY || !baseURL.trim()) {
-      setTextModels(getTextFallbackModels(textProvider))
-      return
-    }
-    setTextModelsLoading(true)
-    setTextModelsError('')
-    const res = await window.specula.settings.listTextModels({ apiKey: BUILTIN_TEXT_API_KEY, baseURL })
-    const fallback = getTextFallbackModels(textProvider)
-    if (res.ok && res.models.length > 0) {
-      setTextModels(mergeModels(res.models, fallback, model))
-    } else {
-      setTextModels(mergeModels([], fallback, model))
-      setTextModelsError(res.message ? `${res.message}，已显示预设模型` : '已显示预设模型')
-    }
-    setTextModelsLoading(false)
-  }, [baseURL, textProvider, model])
-
-  const fetchVisionModels = useCallback(async () => {
-    if (!BUILTIN_VISION_API_KEY || !visionBaseURL.trim()) {
-      setVisionModels(getVisionFallbackModels(visionProvider))
-      return
-    }
-    setVisionModelsLoading(true)
-    setVisionModelsError('')
-    const res = await window.specula.settings.listVisionModels({
-      apiKey: BUILTIN_VISION_API_KEY,
-      baseURL: visionBaseURL,
-    })
-    const fallback = getVisionFallbackModels(visionProvider)
-    if (res.ok && res.models.length > 0) {
-      setVisionModels(mergeModels(res.models, fallback, visionModel))
-    } else {
-      setVisionModels(mergeModels([], fallback, visionModel))
-      setVisionModelsError(res.message ? `${res.message}，已显示预设模型` : '已显示预设模型')
-    }
-    setVisionModelsLoading(false)
-  }, [visionBaseURL, visionProvider, visionModel])
-
-  useEffect(() => {
-    if (!BUILTIN_TEXT_API_KEY || !baseURL.trim()) {
-      setTextModels(getTextFallbackModels(textProvider))
-      return
-    }
-    const t = setTimeout(() => void fetchTextModels(), 500)
-    return () => clearTimeout(t)
-  }, [baseURL, textProvider, fetchTextModels])
-
-  useEffect(() => {
-    if (!BUILTIN_VISION_API_KEY || !visionBaseURL.trim()) {
-      setVisionModels(getVisionFallbackModels(visionProvider))
-      return
-    }
-    const t = setTimeout(() => void fetchVisionModels(), 500)
-    return () => clearTimeout(t)
-  }, [visionBaseURL, visionProvider, fetchVisionModels])
-
-  const handleTextProviderChange = (id: LlmProviderId) => {
-    setTextProvider(id)
-    const preset = TEXT_LLM_PROVIDERS.find((p) => p.id === id)
-    if (preset && id !== 'custom') {
-      setBaseURL(preset.baseURL)
-      setModel(preset.defaultModel)
-      setTextModels(preset.fallbackModels)
-    }
-  }
-
-  const handleVisionProviderChange = (id: VisionProviderId) => {
-    setVisionProvider(id)
-    const preset = VISION_LLM_PROVIDERS.find((p) => p.id === id)
-    if (preset && id !== 'custom') {
-      setVisionBaseURL(preset.baseURL)
-      setVisionModel(preset.defaultModel)
-      setVisionModels(preset.fallbackModels)
-    }
-  }
+    if (!settings.loaded) return
+    setTeachingMode(settings.defaultTeachingMode)
+    setDarkMode(settings.darkMode)
+  }, [settings.loaded, settings.defaultTeachingMode, settings.darkMode])
 
   const handleSave = async () => {
-    await settings.update({
-      baseURL,
-      model,
-      defaultTeachingMode: teachingMode,
-      darkMode,
-      visionBaseURL,
-      visionModel,
-    })
+    await settings.update({ defaultTeachingMode: teachingMode, darkMode })
     setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
+    window.setTimeout(() => setSaved(false), 2000)
   }
-
-  const handleTest = async () => {
-    setTesting(true)
-    setTestResult(null)
-    await settings.update({ baseURL, model })
-    const result = await window.specula.settings.testConnection()
-    setTestResult(result)
-    setTesting(false)
-  }
-
-  const handleVisionTest = async () => {
-    setVisionTesting(true)
-    setVisionTestResult(null)
-    await settings.update({ visionBaseURL, visionModel })
-    const result = await window.specula.settings.testVision()
-    setVisionTestResult(result)
-    setVisionTesting(false)
-  }
-
-  const textPreset = TEXT_LLM_PROVIDERS.find((p) => p.id === textProvider)
-  const visionPreset = VISION_LLM_PROVIDERS.find((p) => p.id === visionProvider)
-  const canTestText = !!BUILTIN_TEXT_API_KEY && !!baseURL.trim() && !!model.trim()
-  const canTestVision = !!BUILTIN_VISION_API_KEY && !!visionBaseURL.trim() && !!visionModel.trim()
-  const canFetchText = !!BUILTIN_TEXT_API_KEY && !!baseURL.trim()
-  const canFetchVision = !!BUILTIN_VISION_API_KEY && !!visionBaseURL.trim()
 
   return (
     <div className="h-full overflow-y-auto p-6" aria-label="settings-page">
       <div className="mx-auto max-w-lg">
         <h1 className="mb-1 text-2xl font-bold">设置</h1>
-        <p className="mb-6 text-sm text-gray-500">配置 AI 模型与阅读偏好</p>
+        <p className="mb-6 text-sm text-gray-500">调整阅读与讲解偏好</p>
 
         <div className="space-y-6">
-          <section className="card p-5">
-            <div className="mb-4 flex items-center gap-2">
-              <MessageSquare className="h-5 w-5 text-specula-600" />
-              <h2 className="font-medium">文本模型（划线解释 / 测验 / 薄弱点）</h2>
-            </div>
-            <p className="mb-4 text-xs text-gray-500">使用应用内置凭据，用户只需选择服务商与模型。</p>
-
-            <div className="space-y-3">
-              <div>
-                <label className="mb-1 block text-xs font-medium text-gray-500">服务商</label>
-                <select
-                  value={textProvider}
-                  onChange={(e) => handleTextProviderChange(e.target.value as LlmProviderId)}
-                  className="input"
-                >
-                  {TEXT_LLM_PROVIDERS.filter((p) => p.id !== 'custom').map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.label}
-                    </option>
-                  ))}
-                </select>
-                {textPreset?.hint && (
-                  <p className="mt-1 text-[11px] text-gray-400">{textPreset.hint}</p>
-                )}
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-gray-500">模型</label>
-                <ModelSelect
-                  value={model}
-                  onChange={setModel}
-                  models={textModels}
-                  loading={textModelsLoading}
-                  error={textModelsError}
-                  onRefresh={fetchTextModels}
-                  canFetch={canFetchText}
-                  disabled={!canFetchText}
-                />
-              </div>
-
-              <div className="flex flex-wrap items-center gap-3">
-                <button onClick={handleTest} disabled={testing || !canTestText} className="btn-secondary">
-                  {testing ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Wifi className="h-4 w-4" />
-                  )}
-                  测试连接
-                </button>
-                {testResult && (
-                  <span
-                    className={`flex items-center gap-1 text-sm ${
-                      testResult.ok ? 'text-green-600' : 'text-red-600'
-                    }`}
-                  >
-                    {testResult.ok ? (
-                      <CheckCircle className="h-4 w-4" />
-                    ) : (
-                      <XCircle className="h-4 w-4" />
-                    )}
-                    {testResult.message}
-                  </span>
-                )}
-              </div>
-            </div>
-          </section>
-
-          <section className="card p-5">
-            <div className="mb-1 flex items-center gap-2">
-              <ImageIcon className="h-5 w-5 text-specula-600" />
-              <h2 className="font-medium">视觉模型（EPUB 图片解释）</h2>
-            </div>
-            <p className="mb-4 text-xs text-gray-500">图片讲解使用应用内置多模态模型凭据。</p>
-            <div className="space-y-3">
-              <div>
-                <label className="mb-1 block text-xs font-medium text-gray-500">服务商</label>
-                <select
-                  value={visionProvider}
-                  onChange={(e) => handleVisionProviderChange(e.target.value as VisionProviderId)}
-                  className="input"
-                >
-                  {VISION_LLM_PROVIDERS.filter((p) => p.id !== 'custom').map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.label}
-                    </option>
-                  ))}
-                </select>
-                {visionPreset?.hint && (
-                  <p className="mt-1 text-[11px] text-gray-400">{visionPreset.hint}</p>
-                )}
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-gray-500">模型</label>
-                <ModelSelect
-                  value={visionModel}
-                  onChange={setVisionModel}
-                  models={visionModels}
-                  loading={visionModelsLoading}
-                  error={visionModelsError}
-                  onRefresh={fetchVisionModels}
-                  canFetch={canFetchVision}
-                  disabled={!canFetchVision}
-                />
-              </div>
-              <div className="flex flex-wrap items-center gap-3">
-                <button
-                  onClick={handleVisionTest}
-                  disabled={visionTesting || !canTestVision}
-                  className="btn-secondary"
-                >
-                  {visionTesting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wifi className="h-4 w-4" />}
-                  测试连接
-                </button>
-                {visionTestResult && (
-                  <span
-                    className={`flex items-center gap-1 text-sm ${
-                      visionTestResult.ok ? 'text-green-600' : 'text-red-600'
-                    }`}
-                  >
-                    {visionTestResult.ok ? <CheckCircle className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
-                    {visionTestResult.message}
-                  </span>
-                )}
-              </div>
-            </div>
-          </section>
-
           <section className="card p-5">
             <h2 className="mb-4 font-medium">默认教学方式</h2>
             <TeachingModePicker value={teachingMode} onChange={setTeachingMode} />
@@ -331,7 +44,10 @@ export default function Settings() {
                 </div>
               </div>
               <button
+                type="button"
                 onClick={() => setDarkMode(!darkMode)}
+                aria-label="切换深色模式"
+                aria-pressed={darkMode}
                 className={`relative h-6 w-11 rounded-full transition ${
                   darkMode ? 'bg-specula-600' : 'bg-gray-300'
                 }`}

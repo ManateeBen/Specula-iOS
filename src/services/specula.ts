@@ -39,8 +39,8 @@ export const speculaApi: SpeculaAPI = {
   quickBrowse: {
     getProgress: (bookId) => Promise.resolve(quickBrowseService.getProgress(bookId)),
     prepare: (bookId, chapterId) => quickBrowseService.prepare(bookId, chapterId),
-    answer: (bookId, chapterId, status) => Promise.resolve(quickBrowseService.answer(bookId, chapterId, status)),
-    repair: (bookId, chapterId) => Promise.resolve(quickBrowseService.repair(bookId, chapterId)),
+    answer: (bookId, cardId, status) => Promise.resolve(quickBrowseService.answer(bookId, cardId, status)),
+    repair: (bookId, cardId) => Promise.resolve(quickBrowseService.repair(bookId, cardId)),
     reset: (bookId, chapterId) => {
       quickBrowseService.reset(bookId, chapterId)
       return Promise.resolve()

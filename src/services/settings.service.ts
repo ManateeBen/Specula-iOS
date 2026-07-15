@@ -36,27 +36,15 @@ async function setPref(key: string, value: string): Promise<void> {
 }
 
 export async function getSettings(): Promise<AppSettings> {
-  const [apiKey, baseURL, model, defaultTeachingMode, darkMode, visionApiKey, visionBaseURL, visionModel] =
-    await Promise.all([
-      getPref(KEYS.apiKey, DEFAULTS.apiKey),
-      getPref(KEYS.baseURL, DEFAULTS.baseURL),
-      getPref(KEYS.model, DEFAULTS.model),
-      getPref(KEYS.defaultTeachingMode, DEFAULTS.defaultTeachingMode),
-      getPref(KEYS.darkMode, String(DEFAULTS.darkMode)),
-      getPref(KEYS.visionApiKey, DEFAULTS.visionApiKey),
-      getPref(KEYS.visionBaseURL, DEFAULTS.visionBaseURL),
-      getPref(KEYS.visionModel, DEFAULTS.visionModel),
-    ])
+  const [defaultTeachingMode, darkMode] = await Promise.all([
+    getPref(KEYS.defaultTeachingMode, DEFAULTS.defaultTeachingMode),
+    getPref(KEYS.darkMode, String(DEFAULTS.darkMode)),
+  ])
 
   return {
-    apiKey,
-    baseURL: baseURL || DEFAULTS.baseURL,
-    model,
+    ...DEFAULTS,
     defaultTeachingMode: defaultTeachingMode as TeachingMode,
     darkMode: darkMode === 'true',
-    visionApiKey,
-    visionBaseURL: visionBaseURL || DEFAULTS.visionBaseURL,
-    visionModel,
   }
 }
 
@@ -77,20 +65,18 @@ export async function setSettings(partial: Partial<AppSettings>): Promise<AppSet
 }
 
 export async function getTextConfig(): Promise<{ apiKey: string; baseURL: string; model: string }> {
-  const s = await getSettings()
   return {
-    apiKey: BUILTIN_TEXT_API_KEY || s.apiKey,
-    baseURL: s.baseURL || DEFAULTS.baseURL,
-    model: s.model || DEFAULTS.model,
+    apiKey: BUILTIN_TEXT_API_KEY,
+    baseURL: DEFAULTS.baseURL,
+    model: DEFAULTS.model,
   }
 }
 
 export async function getVisionConfig(): Promise<{ apiKey: string; baseURL: string; model: string }> {
-  const s = await getSettings()
   return {
-    apiKey: BUILTIN_VISION_API_KEY || BUILTIN_TEXT_API_KEY || s.visionApiKey,
-    baseURL: s.visionBaseURL || DEFAULTS.visionBaseURL,
-    model: s.visionModel || DEFAULTS.visionModel,
+    apiKey: BUILTIN_VISION_API_KEY,
+    baseURL: DEFAULTS.visionBaseURL,
+    model: DEFAULTS.visionModel,
   }
 }
 

@@ -38,9 +38,11 @@ export interface Chapter {
 export type QuickBrowseStatus = 'unanswered' | 'confident' | 'gap' | 'repaired'
 
 export interface ChapterDigest {
+  id: string
   chapterId: string
   chapterTitle: string
   chapterOrder: number
+  cardIndex: number
   title: string
   summary: string
   keyTerms: string[]
@@ -244,8 +246,8 @@ export interface SpeculaAPI {
   quickBrowse: {
     getProgress: (bookId: string) => Promise<QuickBrowseProgress>
     prepare: (bookId: string, chapterId: string) => Promise<QuickBrowseProgress>
-    answer: (bookId: string, chapterId: string, status: 'confident' | 'gap') => Promise<ChapterDigest>
-    repair: (bookId: string, chapterId: string) => Promise<ChapterDigest>
+    answer: (bookId: string, cardId: string, status: 'confident' | 'gap') => Promise<ChapterDigest>
+    repair: (bookId: string, cardId: string) => Promise<ChapterDigest>
     reset: (bookId: string, chapterId: string) => Promise<void>
     track: (bookId: string, eventName: string, chapterId?: string, properties?: Record<string, unknown>) => Promise<void>
   }

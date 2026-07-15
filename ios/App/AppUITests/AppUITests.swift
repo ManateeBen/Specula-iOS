@@ -52,15 +52,22 @@ final class AppUITests: XCTestCase {
             reset.tap()
             RunLoop.current.run(until: Date().addingTimeInterval(0.8))
         }
-        waitForAny("答不上来", timeout: 20)
+        waitForAny("答不上来", timeout: 90)
         attachScreenshot(named: "04-quick-browse-card")
 
         tapAny(["答不上来"])
         RunLoop.current.run(until: Date().addingTimeInterval(0.8))
 
+        for _ in 0..<4 {
+            let confident = app.buttons["我能答上来"].firstMatch
+            guard confident.waitForExistence(timeout: 2) else { break }
+            confident.tap()
+            RunLoop.current.run(until: Date().addingTimeInterval(0.8))
+        }
+
         waitForAny("发现 1 个认知缺口", timeout: 15)
         attachScreenshot(named: "05-quick-browse-summary")
-        tapAny(["认知缺口：为什么仅知道这个结论，还不足以真正理解本章？"])
+        tapAny(["quick-browse-gap-1"])
         RunLoop.current.run(until: Date().addingTimeInterval(1))
         attachScreenshot(named: "06-after-gap-tap")
         waitForAny(["认知缺口问题钉", "你带着一个问题来"], timeout: 15)

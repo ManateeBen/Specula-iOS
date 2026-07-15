@@ -26,6 +26,7 @@ export default function QuickBrowse() {
 
   const load = useCallback(async () => {
     if (!bookId || !chapterId) return
+    setLoading(true)
     setError('')
     const [nextBook, saved] = await Promise.all([
       window.specula.books.get(bookId),
@@ -33,9 +34,7 @@ export default function QuickBrowse() {
     ])
     setBook(nextBook)
     setProgress(saved)
-    setLoading(false)
     if (!saved.digests.some((item) => item.chapterId === chapterId)) {
-      setLoading(true)
       try {
         setProgress(await window.specula.quickBrowse.prepare(bookId, chapterId))
       } catch (err) {
@@ -43,6 +42,8 @@ export default function QuickBrowse() {
       } finally {
         setLoading(false)
       }
+    } else {
+      setLoading(false)
     }
   }, [bookId, chapterId])
 
@@ -71,10 +72,10 @@ export default function QuickBrowse() {
 
   const answer = async (digest: ChapterDigest, status: 'confident' | 'gap', index: number) => {
     if (!bookId || digest.status !== 'unanswered') return
-    const updated = await window.specula.quickBrowse.answer(bookId, digest.chapterId, status)
+    const updated = await window.specula.quickBrowse.answer(bookId, digest.id, status)
     setProgress((current) => current ? {
       ...current,
-      digests: current.digests.map((item) => item.chapterId === updated.chapterId ? updated : item),
+      digests: current.digests.map((item) => item.id === updated.id ? updated : item),
     } : current)
     window.setTimeout(() => scrollToCard(Math.min(index + 1, totalCards - 1)), 400)
   }
@@ -84,7 +85,9 @@ export default function QuickBrowse() {
     await window.specula.quickBrowse.reset(bookId, chapterId)
     setProgress((current) => current ? {
       ...current,
-      digests: current.digests.map((item) => ({ ...item, status: 'unanswered', answeredAt: null })),
+      digests: current.digests.map((item) => item.chapterId === chapterId
+        ? { ...item, status: 'unanswered', answeredAt: null }
+        : item),
     } : current)
     setActiveIndex(0)
     scrollToCard(0)
@@ -93,7 +96,7 @@ export default function QuickBrowse() {
   const openGap = async (digest: ChapterDigest) => {
     if (!bookId) return
     await window.specula.quickBrowse.track(bookId, 'quick_browse_gap_opened', digest.chapterId)
-    navigate(`/reader/${bookId}?chapterId=${encodeURIComponent(digest.chapterId)}&gapId=${encodeURIComponent(digest.chapterId)}`)
+    navigate(`/reader/${bookId}?chapterId=${encodeURIComponent(digest.chapterId)}&gapId=${encodeURIComponent(digest.id)}`)
   }
 
   const handleScroll = () => {
@@ -146,7 +149,7 @@ export default function QuickBrowse() {
             <p className="mt-2 text-sm leading-6 text-gray-500">首次进入会生成本章浓缩卡片，之后可直接恢复。</p>
           </div>
         </div>
-      ) : (error || progress?.generationComplete) && digests.length === 0 ? (
+      ) : error || digests.length === 0 ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 px-8 text-center">
           <p className="font-medium">本章暂时没有可用卡片</p>
           <p className="text-sm leading-6 text-gray-500">{error || '章节内容未通过摘要与锚点校验，正常阅读不受影响。'}</p>
@@ -164,7 +167,7 @@ export default function QuickBrowse() {
               const isGap = digest.status === 'gap'
               return (
                 <article
-                  key={digest.chapterId}
+                  key={digest.id}
                   className={`relative flex h-full min-w-[86vw] snap-center flex-col overflow-y-auto rounded-lg border bg-white px-5 py-5 shadow-sm transition dark:bg-gray-900 sm:min-w-[min(520px,86vw)] ${
                     isGap ? 'border-red-400 dark:border-red-700' : answered ? 'border-emerald-300 opacity-75 dark:border-emerald-800' : 'border-gray-200 dark:border-gray-700'
                   }`}
@@ -202,29 +205,29 @@ export default function QuickBrowse() {
             })}
 
             <article className="flex h-full min-w-[86vw] snap-center flex-col overflow-y-auto rounded-lg border border-gray-200 bg-white px-5 py-6 shadow-sm dark:border-gray-700 dark:bg-gray-900 sm:min-w-[min(520px,86vw)]" aria-label="quick-browse-summary">
-              {!allAnswered ? (
-                <div className="m-auto text-center">
-                  <Sparkles className="mx-auto h-7 w-7 text-specula-500" />
-                  <h2 className="mt-4 text-xl font-semibold">先回答前面的问题</h2>
-                  <p className="mt-3 text-sm leading-6 text-gray-500">缺口会汇总在这里。还剩 {digests.length - answeredCount} 张卡片。</p>
-                </div>
-              ) : gaps.length > 0 ? (
+              {gaps.length > 0 ? (
                 <>
-                  <p className="text-xs font-semibold text-red-600">浏览结算</p>
+                  <p className="text-xs font-semibold text-red-600">浏览结算 · 已回答 {answeredCount}/{digests.length}</p>
                   <h2 className="mt-3 text-2xl font-semibold">发现 {gaps.length} 个认知缺口</h2>
-                  <p className="mt-2 text-sm text-gray-500">不急着全懂。知道该回到哪里，已经是收获。</p>
+                  <p className="mt-2 text-sm text-gray-500">卡片彼此独立，可以随时回来继续；先从最想弄懂的缺口开始。</p>
                   <div className="mt-6 divide-y divide-gray-200 border-y border-gray-200 dark:divide-gray-700 dark:border-gray-700">
                     {gaps.map((gap) => (
-                      <button key={gap.chapterId} onClick={() => void openGap(gap)} aria-label={`认知缺口：${gap.question}`} className="flex w-full items-center gap-3 py-4 text-left">
+                      <button key={gap.id} onClick={() => void openGap(gap)} aria-label={`quick-browse-gap-${gap.cardIndex + 1}`} className="flex w-full items-center gap-3 py-4 text-left">
                         <div className="min-w-0 flex-1">
                           <p className="text-sm font-semibold leading-6">{gap.question}</p>
-                          <p className="mt-1 text-xs text-gray-500">直达答案所在段落 · {gap.chapterTitle}</p>
+                          <p className="mt-1 text-xs text-gray-500">直达答案所在段落 · 卡片 {gap.cardIndex + 1}</p>
                         </div>
                         <ChevronRight className="h-5 w-5 shrink-0 text-red-500" />
                       </button>
                     ))}
                   </div>
                 </>
+              ) : !allAnswered ? (
+                <div className="m-auto text-center">
+                  <Sparkles className="mx-auto h-7 w-7 text-specula-500" />
+                  <h2 className="mt-4 text-xl font-semibold">本章浏览进度 {answeredCount}/{digests.length}</h2>
+                  <p className="mt-3 text-sm leading-6 text-gray-500">每张卡片都独立显示，可以自由滑动、按任意顺序回答。</p>
+                </div>
               ) : (
                 <div className="m-auto text-center">
                   <Check className="mx-auto h-8 w-8 text-emerald-500" />
@@ -244,7 +247,7 @@ export default function QuickBrowse() {
                 return <button key={index} onClick={() => scrollToCard(index)} aria-label={`第 ${index + 1} 张`} className={`h-2.5 w-2.5 rounded-full transition ${color} ${index === activeIndex ? 'scale-125' : ''}`} />
               })}
             </div>
-            <p className="mt-3 text-center text-xs text-gray-500">左右滑动翻章 · 红点 = 待修复的缺口</p>
+            <p className="mt-3 text-center text-xs text-gray-500">左右滑动浏览卡片 · 红点 = 待修复的缺口</p>
           </div>
         </>
       )}

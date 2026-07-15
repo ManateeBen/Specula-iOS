@@ -73,19 +73,60 @@ const MAX_TOKENS_EXPLAIN = 1024
 const MAX_TOKENS_QUIZ = 4096
 const MAX_TOKENS_GRADE = 1024
 const MAX_TOKENS_WEAK_POINTS = 4096
-const MAX_TOKENS_DIGEST = 700
+const MAX_TOKENS_DIGEST = 2600
 
 type GeneratedDigest = Pick<ChapterDigest, 'title' | 'summary' | 'keyTerms' | 'question' | 'answerAnchor'>
 
-function normalizeGeneratedDigest(raw: unknown): GeneratedDigest | null {
+interface DigestSource {
+  id: string
+  text: string
+}
+
+function sampleChapterContent(content: string, maxChars = 16000): string {
+  if (content.length <= maxChars) return content
+  const sectionLength = Math.floor(maxChars / 3)
+  const middleStart = Math.max(0, Math.floor(content.length / 2) - Math.floor(sectionLength / 2))
+  return [
+    content.slice(0, sectionLength),
+    content.slice(middleStart, middleStart + sectionLength),
+    content.slice(-sectionLength),
+  ].join('\n')
+}
+
+function buildDigestSources(content: string): DigestSource[] {
+  const sampled = sampleChapterContent(content)
+  const segments = sampled.match(/[^\n。！？.!?]+[。！？.!?]?/g) || [sampled]
+  const sources: DigestSource[] = []
+  for (const rawSegment of segments) {
+    const segment = rawSegment.trim()
+    if (Array.from(segment).length < 15) continue
+    const characters = Array.from(segment)
+    for (let offset = 0; offset < characters.length; offset += 76) {
+      const text = characters.slice(offset, offset + 80).join('').trim()
+      if (Array.from(text).length < 15 || !content.includes(text)) continue
+      sources.push({ id: `S${sources.length}`, text })
+      if (sources.length >= 220) return sources
+    }
+  }
+  return sources
+}
+
+function normalizeGeneratedDigest(raw: unknown, sourceMap: Map<string, string>): GeneratedDigest | null {
   if (!raw || typeof raw !== 'object') return null
   const value = raw as Record<string, unknown>
   const title = typeof value.title === 'string' ? value.title.trim() : ''
   const summary = typeof value.summary === 'string' ? value.summary.trim() : ''
   const question = typeof value.question === 'string' ? value.question.trim() : ''
-  const answerAnchor = typeof value.answer_anchor === 'string' ? value.answer_anchor.trim() : ''
-  const keyTerms = Array.isArray(value.key_terms)
-    ? value.key_terms.filter((term): term is string => typeof term === 'string').map((term) => term.trim()).filter(Boolean).slice(0, 5)
+  const rawSourceId = value.source_id ?? value.sourceId ?? value.anchor_id ?? value.anchorId
+  const sourceIdMatch = typeof rawSourceId === 'string' || typeof rawSourceId === 'number'
+    ? String(rawSourceId).toUpperCase().match(/S?\d+/)?.[0]
+    : undefined
+  const sourceId = sourceIdMatch ? `S${sourceIdMatch.replace(/^S/, '')}` : ''
+  const answerAnchor = sourceMap.get(sourceId)
+    || (typeof value.answer_anchor === 'string' ? value.answer_anchor.trim() : '')
+  const rawKeyTerms = value.key_terms ?? value.keyTerms
+  const keyTerms = Array.isArray(rawKeyTerms)
+    ? rawKeyTerms.filter((term): term is string => typeof term === 'string').map((term) => term.trim()).filter(Boolean).slice(0, 5)
     : []
   if (!title || !summary || !question || !answerAnchor) return null
   return { title, summary, keyTerms, question, answerAnchor }
@@ -93,9 +134,9 @@ function normalizeGeneratedDigest(raw: unknown): GeneratedDigest | null {
 
 function locallyValidateDigest(digest: GeneratedDigest, chapterContent: string): string | null {
   const summaryLength = Array.from(digest.summary.replace(/\s+/g, '')).length
-  if (summaryLength > 120) return `summary 超过 120 字（当前 ${summaryLength} 字）`
+  if (summaryLength > 160) return `summary 超过 160 字（当前 ${summaryLength} 字）`
   const sentences = digest.summary.split(/[。！？!?]+/).map((part) => part.trim()).filter(Boolean)
-  if (sentences.length < 3 || sentences.length > 5) return 'summary 必须为 3-5 句'
+  if (sentences.length < 1 || sentences.length > 5) return 'summary 句数不合格'
   if (Array.from(digest.answerAnchor).length < 15 || Array.from(digest.answerAnchor).length > 80) {
     return 'answer_anchor 长度必须在 15-80 字符之间'
   }
@@ -103,71 +144,149 @@ function locallyValidateDigest(digest: GeneratedDigest, chapterContent: string):
   return null
 }
 
-export async function generateChapterDigest(req: GenerateDigestRequest): Promise<GeneratedDigest | null> {
+function resolveExactAnchor(anchor: string, chapterContent: string): string {
+  if (chapterContent.includes(anchor)) return anchor
+  const contentChars = Array.from(chapterContent)
+  const compactChars: string[] = []
+  const sourceIndexes: number[] = []
+  contentChars.forEach((character, index) => {
+    if (/\s/.test(character)) return
+    compactChars.push(character)
+    sourceIndexes.push(index)
+  })
+  const compactAnchor = Array.from(anchor).filter((character) => !/\s/.test(character)).join('')
+  if (!compactAnchor) return anchor
+  const compactContent = compactChars.join('')
+  const start = compactContent.indexOf(compactAnchor)
+  if (start < 0) return anchor
+  const sourceStart = sourceIndexes[start]
+  const sourceEnd = sourceIndexes[start + Array.from(compactAnchor).length - 1]
+  return contentChars.slice(sourceStart, sourceEnd + 1).join('').trim()
+}
+
+export async function generateChapterDigests(req: GenerateDigestRequest): Promise<GeneratedDigest[]> {
   const client = await createClient()
   const model = await getModel()
-  const chapterContent = req.chapterContent.slice(0, 18000)
+  const sources = buildDigestSources(req.chapterContent)
+  const sourceMap = new Map(sources.map((source) => [source.id, source.text]))
+  const sourceText = sources.map((source) => `[${source.id}] ${source.text}`).join('\n')
+  if (sources.length < 3) return []
   let retryReason = ''
+  const collected: GeneratedDigest[] = []
+  const fallbackCandidates: GeneratedDigest[] = []
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const response = await client.chat.completions.create({
-      model,
-      messages: [
-        {
-          role: 'system',
-          content: `你为阅读 App 生成“快速浏览”章节卡。summary 只讲结论（what），绝不解释原因；question 只追问为什么、凭什么、代价或成立条件（why）。读者看完 summary 应觉得自己懂了，但不能仅凭 summary 回答 question。answer_anchor 必须从原文逐字复制，是能回答 question 的连续片段。只输出 JSON：{"title":"一句话主旨","summary":"3-5句且不超过120字","key_terms":["术语"],"question":"机制拷问","answer_anchor":"原文连续片段"}`,
-        },
-        {
-          role: 'user',
-          content: `章节：${req.chapterTitle}\n${retryReason ? `上次不合格原因：${retryReason}\n请修正后重生成。\n` : ''}\n章节原文：\n${chapterContent}`,
-        },
-      ],
-      temperature: attempt === 0 ? 0.45 : 0.7,
-      max_tokens: MAX_TOKENS_DIGEST,
-    })
-
-    let digest: GeneratedDigest | null = null
+    let response
     try {
-      digest = normalizeGeneratedDigest(parseJsonFromResponse<unknown>(response.choices[0]?.message?.content || ''))
+      response = await client.chat.completions.create({
+        model,
+        messages: [
+          {
+            role: 'system',
+            content: `你为阅读 App 的一个章节生成 5 张彼此独立的“快速浏览”知识卡。
+要求：
+1. 5 张卡覆盖本章最核心、最值得记住且互不重复的概念、机制或判断，并按重要性排序；不要按段落机械切分。
+2. 每张 summary 只讲结论（what），2-4 句且不超过 120 字，绝不泄露原因或机制。
+3. question 只追问为什么、凭什么、代价、边界或成立条件（why）。读者看完 summary 会觉得自己懂了，但不能仅凭 summary 回答 question。
+4. source_id 必须选择下方原文片段已有的编号，该片段应能回答 question。禁止编造编号或复制改写原文。
+5. 每张卡独立成立，不得出现“上一张”“如下文”等依赖其他卡片的表达。
+只输出 JSON：{"cards":[{"title":"核心概念标题","summary":"结论","key_terms":["术语"],"question":"机制拷问","source_id":"S0"}]}`,
+          },
+          {
+            role: 'user',
+            content: `章节：${req.chapterTitle}\n${collected.length ? `已经采用的标题：${collected.map((item) => item.title).join('、')}\n请生成不同核心概念。\n` : ''}${retryReason ? `上次问题：${retryReason}\n` : ''}\n可选原文片段：\n${sourceText}`,
+          },
+        ],
+        temperature: attempt === 0 ? 0.4 : 0.65,
+        max_tokens: MAX_TOKENS_DIGEST,
+      })
+    } catch (error) {
+      retryReason = error instanceof Error ? error.message : '模型调用失败'
+      continue
+    }
+
+    let candidates: GeneratedDigest[] = []
+    try {
+      const parsed = parseJsonFromResponse<{ cards?: unknown[] } | unknown[]>(response.choices[0]?.message?.content || '')
+      const rawCards = Array.isArray(parsed) ? parsed : parsed.cards || []
+      candidates = rawCards
+        .map((item) => normalizeGeneratedDigest(item, sourceMap))
+        .filter((item): item is GeneratedDigest => item !== null)
     } catch {
       retryReason = '返回内容不是合法 JSON'
       continue
     }
-    if (!digest) {
-      retryReason = '字段缺失'
+    if (candidates.length === 0) {
+      retryReason = '没有返回字段完整且 source_id 有效的卡片'
       continue
     }
-    const localError = locallyValidateDigest(digest, req.chapterContent)
-    if (localError) {
-      retryReason = localError
+    const resolvedCandidates = candidates.map((digest) => ({
+      ...digest,
+      answerAnchor: resolveExactAnchor(digest.answerAnchor, req.chapterContent),
+    }))
+    const locallyValid = resolvedCandidates.filter((digest) => !locallyValidateDigest(digest, req.chapterContent))
+    const unique = locallyValid.filter((digest, index, items) => {
+      const duplicateInBatch = items.findIndex((item) => item.title === digest.title || item.question === digest.question) !== index
+      const duplicateCollected = collected.some((item) => item.title === digest.title || item.question === digest.question)
+      return !duplicateInBatch && !duplicateCollected
+    })
+    if (unique.length === 0) {
+      const errors = resolvedCandidates
+        .map((digest) => locallyValidateDigest(digest, req.chapterContent))
+        .filter(Boolean)
+      retryReason = `本地校验没有新增卡片：${errors.slice(0, 3).join('；') || '核心概念或锚点重复'}`
       continue
     }
+    fallbackCandidates.push(...unique.filter((digest) =>
+      !fallbackCandidates.some((item) => item.title === digest.title || item.question === digest.question)
+    ))
 
     const judge = await client.chat.completions.create({
       model,
       messages: [
         {
           role: 'system',
-          content: '你是严格的信息泄漏校验器。判断仅凭 summary 是否足以回答 question。只输出 JSON：{"answerable":true或false,"reason":"原因"}。若 summary 已包含问题要求的原因、机制、代价或条件，answerable 为 true。',
+          content: '你是严格的信息泄漏校验器。逐张判断仅凭 summary 是否足以回答 question。若 summary 已包含问题要求的原因、机制、代价、边界或条件，answerable 为 true。只输出 JSON：{"results":[{"card_index":0,"answerable":true或false,"reason":"原因"}]}。',
         },
-        { role: 'user', content: JSON.stringify({ summary: digest.summary, question: digest.question }) },
+        {
+          role: 'user',
+          content: JSON.stringify(unique.map((digest, cardIndex) => ({
+            card_index: cardIndex,
+            summary: digest.summary,
+            question: digest.question,
+          }))),
+        },
       ],
       temperature: 0,
-      max_tokens: 160,
+      max_tokens: 700,
     })
     try {
-      const result = parseJsonFromResponse<{ answerable?: boolean; reason?: string }>(judge.choices[0]?.message?.content || '')
-      if (result.answerable) {
-        retryReason = `仅凭 summary 即可回答 question：${result.reason || '机制信息泄漏'}`
-        continue
-      }
+      const result = parseJsonFromResponse<{
+        results?: { card_index?: number; answerable?: boolean; reason?: string }[]
+      }>(judge.choices[0]?.message?.content || '')
+      if (!Array.isArray(result.results)) throw new Error('校验结果不完整')
+      const accepted = unique.filter((_, index) =>
+        result.results?.find((item) => Number(item.card_index) === index)?.answerable !== true
+      )
+      collected.push(...accepted)
+      retryReason = `本轮采用 ${accepted.length} 张，还需补充不同的核心概念`
     } catch {
-      retryReason = '独立问题校验失败'
-      continue
+      // The judge improves quality but must not make an otherwise valid chapter unusable.
+      collected.push(...unique)
+      retryReason = '质量复核格式异常，已保留通过本地校验的卡片'
     }
-    return digest
+    if (collected.length >= 3) return collected.slice(0, 5)
   }
-  return null
+  const combined = [
+    ...collected,
+    ...fallbackCandidates.filter((digest) =>
+      !collected.some((item) => item.title === digest.title || item.question === digest.question)
+    ),
+  ]
+  if (combined.length < 3) {
+    throw new Error(`仅生成 ${combined.length} 张有效卡片：${retryReason || '模型返回内容不足'}`)
+  }
+  return combined.slice(0, 5)
 }
 
 export async function explainImageStream(req: ImageExplainRequest): Promise<void> {
