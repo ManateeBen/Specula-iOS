@@ -23,6 +23,10 @@ final class AppUITests: XCTestCase {
         waitForAny("Welcome to Specula", timeout: 20)
         attachScreenshot(named: "03-reader")
 
+        swipeReaderUp()
+        attachScreenshot(named: "03-reader-progress")
+        swipeReaderDown()
+
         runQuickBrowseGapLoop()
 
         swipeReaderLeft()
@@ -136,6 +140,14 @@ final class AppUITests: XCTestCase {
 
     private func swipeReaderRight() {
         drag(from: CGVector(dx: 0.18, dy: 0.52), to: CGVector(dx: 0.82, dy: 0.52))
+    }
+
+    private func swipeReaderUp() {
+        drag(from: CGVector(dx: 0.52, dy: 0.74), to: CGVector(dx: 0.52, dy: 0.38))
+    }
+
+    private func swipeReaderDown() {
+        drag(from: CGVector(dx: 0.52, dy: 0.38), to: CGVector(dx: 0.52, dy: 0.74))
     }
 
     private func drag(from start: CGVector, to end: CGVector) {

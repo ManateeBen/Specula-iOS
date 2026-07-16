@@ -1,3 +1,7 @@
+@import '@fontsource/anton/400.css';
+@import '@fontsource/ibm-plex-mono/400.css';
+@import '@fontsource/ibm-plex-mono/500.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -669,6 +673,569 @@
 }
 .pdf-image-explain-button:active {
   transform: translateY(1px);
+}
+
+/* Specula Records: library as crate, reader as liner notes. */
+.records-shell,
+.records-library,
+.records-reader {
+  --records-paper: #f4f1ea;
+  --records-ink: #141414;
+  --records-muted: #67665f;
+  --records-faint: #a09d93;
+  --records-rule: #d9d4c7;
+  --records-cobalt: #2743d6;
+  --records-red: #bd3e27;
+  background: var(--records-paper);
+  color: var(--records-ink);
+}
+
+.records-shell {
+  isolation: isolate;
+}
+
+.records-shell::after,
+.records-reader::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='150' height='150'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .035 0'/%3E%3C/filter%3E%3Crect width='150' height='150' filter='url(%23n)'/%3E%3C/svg%3E");
+  content: '';
+  inset: 0;
+  opacity: 0.5;
+  pointer-events: none;
+  position: fixed;
+  z-index: 80;
+}
+
+.records-library {
+  height: 100%;
+  overflow-y: auto;
+  padding-bottom: 36px;
+}
+
+.records-masthead {
+  align-items: flex-end;
+  display: flex;
+  justify-content: space-between;
+  margin: 0 auto;
+  max-width: 980px;
+  padding: 32px 24px 0;
+}
+
+.records-masthead h1,
+.records-section-title h2 {
+  font-family: 'Anton', Impact, sans-serif;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+.records-masthead h1 {
+  font-size: 31px;
+  line-height: 1;
+}
+
+.records-masthead p,
+.records-mono,
+.records-section-title span,
+.records-masthead button,
+.records-ticker,
+.records-tabs,
+.record-sleeve__catalog,
+.record-sleeve__tracks,
+.record-item__meta span,
+.record-slot span {
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+}
+
+.records-masthead p {
+  color: var(--records-faint);
+  font-size: 9px;
+  letter-spacing: 0.22em;
+  margin-top: 7px;
+}
+
+.records-masthead button {
+  align-items: center;
+  background: transparent;
+  border: 1.5px solid var(--records-ink);
+  display: inline-flex;
+  font-size: 11px;
+  gap: 7px;
+  min-height: 40px;
+  padding: 8px 14px;
+}
+
+.records-masthead button svg {
+  height: 15px;
+  width: 15px;
+}
+
+.records-library__main {
+  margin: 0 auto;
+  max-width: 980px;
+  padding: 0 24px;
+}
+
+.records-alert {
+  border-left: 3px solid #e0b900;
+  font-size: 13px;
+  margin-top: 18px;
+  padding: 10px 12px;
+}
+
+.records-alert--error { border-color: var(--records-red); }
+
+.now-playing-card {
+  align-items: center;
+  border: 1.5px solid var(--records-ink);
+  color: inherit;
+  display: flex;
+  gap: 20px;
+  margin-top: 30px;
+  min-height: 150px;
+  padding: 20px;
+  position: relative;
+  text-decoration: none;
+}
+
+.now-playing-card__label {
+  background: var(--records-paper);
+  color: var(--records-cobalt);
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 9px;
+  left: 15px;
+  letter-spacing: 0.2em;
+  padding: 0 8px;
+  position: absolute;
+  top: -8px;
+}
+
+.vinyl-progress {
+  background: conic-gradient(var(--records-cobalt) var(--record-progress), var(--records-rule) 0);
+  border-radius: 50%;
+  flex: 0 0 auto;
+  height: 112px;
+  position: relative;
+  width: 112px;
+}
+
+.vinyl-progress::before {
+  background: var(--records-paper);
+  border-radius: 50%;
+  content: '';
+  inset: 5px;
+  position: absolute;
+}
+
+.vinyl-progress__disc {
+  animation: record-spin 8s linear infinite;
+  background: repeating-radial-gradient(circle, #171717 0 2px, #292929 2px 4px);
+  border-radius: 50%;
+  inset: 9px;
+  position: absolute;
+}
+
+.vinyl-progress__disc::after {
+  background: var(--records-cobalt);
+  border: 8px solid #242424;
+  border-radius: 50%;
+  content: '';
+  inset: 31px;
+  position: absolute;
+}
+
+.vinyl-progress > span {
+  color: var(--records-paper);
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 9px;
+  inset: 0;
+  line-height: 112px;
+  position: absolute;
+  text-align: center;
+  z-index: 2;
+}
+
+@keyframes record-spin { to { transform: rotate(360deg); } }
+
+.now-playing-card__copy { min-width: 0; }
+.now-playing-card__copy > .records-mono {
+  color: var(--records-muted);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+}
+
+.now-playing-card__copy h2 {
+  font-family: 'Noto Sans SC', 'PingFang SC', sans-serif;
+  font-size: 20px;
+  font-weight: 900;
+  line-height: 1.45;
+  margin-top: 6px;
+}
+
+.now-playing-card__question {
+  color: var(--records-muted);
+  font-family: 'Songti SC', 'Noto Serif SC', serif;
+  font-size: 13px;
+  line-height: 1.75;
+  margin-top: 7px;
+}
+
+.now-playing-card__question strong {
+  background: linear-gradient(transparent 66%, rgba(39, 67, 214, 0.13) 0);
+  color: var(--records-ink);
+  font-weight: 600;
+}
+
+.now-playing-card__continue {
+  align-items: center;
+  color: var(--records-cobalt);
+  display: inline-flex;
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 11px;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.now-playing-card__continue i {
+  align-items: center;
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+  display: inline-flex;
+  font-size: 8px;
+  font-style: normal;
+  height: 25px;
+  justify-content: center;
+  padding-left: 2px;
+  width: 25px;
+}
+
+.records-ticker {
+  border-bottom: 1px solid var(--records-rule);
+  border-top: 1.5px solid var(--records-ink);
+  color: var(--records-muted);
+  display: flex;
+  font-size: 10px;
+  justify-content: space-between;
+  letter-spacing: 0.08em;
+  margin-top: 17px;
+  overflow-x: auto;
+  padding: 10px 2px;
+  white-space: nowrap;
+}
+
+.records-ticker span { margin-right: 22px; }
+.records-ticker span:last-child { margin-right: 0; }
+.records-ticker b { color: var(--records-ink); font-weight: 500; }
+.records-ticker__accent,
+.records-ticker__accent b { color: var(--records-cobalt) !important; }
+
+.records-section-title {
+  align-items: baseline;
+  display: flex;
+  justify-content: space-between;
+  padding: 31px 0 14px;
+}
+
+.records-section-title h2 { font-size: 21px; }
+.records-section-title span { color: var(--records-faint); font-size: 9px; letter-spacing: 0.15em; }
+
+.record-crate {
+  display: grid;
+  gap: 24px 19px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.record-item { color: inherit; min-width: 0; text-decoration: none; }
+.record-sleeve {
+  aspect-ratio: 1;
+  box-shadow: 5px 6px 0 rgba(20, 20, 20, 0.13);
+  color: var(--records-paper);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 15px;
+  position: relative;
+}
+
+.record-sleeve__art,
+.record-sleeve__veil { inset: 0; position: absolute; }
+.record-sleeve__art { height: 100%; object-fit: cover; width: 100%; }
+.record-sleeve__veil { background: rgba(12, 12, 12, 0.48); }
+.record-sleeve > :not(.record-sleeve__art, .record-sleeve__veil) { position: relative; z-index: 1; }
+.record-sleeve__catalog { font-size: 8px; letter-spacing: 0.13em; opacity: 0.78; }
+.record-sleeve__number {
+  font-family: 'Anton', Impact, sans-serif;
+  font-size: clamp(48px, 8vw, 76px);
+  line-height: 0.9;
+  margin-top: auto;
+}
+
+.record-sleeve h3 {
+  font-family: 'Noto Sans SC', 'PingFang SC', sans-serif;
+  font-size: 15px;
+  font-weight: 900;
+  line-height: 1.4;
+  margin-top: 8px;
+}
+
+.record-sleeve__tracks { font-size: 8px; letter-spacing: 0.1em; margin-top: 7px; opacity: 0.75; }
+.record-sleeve__delete {
+  align-items: center;
+  background: rgba(20, 20, 20, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  display: flex;
+  height: 34px;
+  justify-content: center;
+  position: absolute !important;
+  right: 10px;
+  top: 10px;
+  width: 34px;
+}
+.record-sleeve__delete svg { height: 14px; width: 14px; }
+.hype-sticker {
+  align-items: center;
+  background: #f0df3e;
+  border-radius: 50%;
+  color: var(--records-ink);
+  display: flex;
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 7px;
+  font-weight: 700;
+  height: 57px;
+  justify-content: center;
+  line-height: 1.4;
+  position: absolute !important;
+  right: 10px;
+  text-align: center;
+  top: 10px;
+  transform: rotate(10deg);
+  width: 57px;
+}
+.record-item__meta { padding-top: 10px; }
+.record-item__meta strong { display: block; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.record-item__meta span { color: var(--records-faint); display: block; font-size: 9px; margin-top: 4px; }
+.record-item__meta > i { background: var(--records-rule); display: block; height: 2px; margin-top: 8px; }
+.record-item__meta > i b { background: var(--records-ink); display: block; height: 2px; }
+
+.record-slot {
+  align-items: center;
+  aspect-ratio: 1;
+  background: transparent;
+  border: 1.5px dashed var(--records-faint);
+  color: var(--records-faint);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  justify-content: center;
+}
+.record-slot svg { height: 29px; width: 29px; }
+.record-slot span { font-size: 9px; letter-spacing: 0.13em; }
+.records-empty { color: var(--records-faint); font-family: 'IBM Plex Mono', monospace; padding: 80px 0; text-align: center; }
+
+.records-tabs {
+  background: var(--records-paper);
+  border-top: 1.5px solid var(--records-ink);
+  display: flex;
+  flex-shrink: 0;
+  justify-content: center;
+  gap: 54px;
+  min-height: 50px;
+  padding-top: 14px;
+  z-index: 90;
+}
+.records-tabs a { color: var(--records-faint); font-size: 10px; letter-spacing: 0.16em; position: relative; }
+.records-tabs a.is-active { color: var(--records-ink); font-weight: 500; }
+.records-tabs a.is-active::after { background: var(--records-cobalt); bottom: 7px; content: ''; height: 2px; left: 0; position: absolute; right: 0; }
+
+/* Reader as album liner notes. */
+.records-reader { isolation: isolate; }
+.reader-record-top {
+  background: rgba(244, 241, 234, 0.97);
+  border-bottom: 1.5px solid var(--records-ink);
+  box-shadow: none;
+  color: var(--records-ink);
+  min-height: 57px;
+}
+.reader-record-top h2,
+.reader-record-top p,
+.reader-record-top__time {
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+}
+.reader-record-top h2 { font-size: 10px; font-weight: 500; letter-spacing: 0.07em; }
+.reader-record-top p { color: var(--records-faint); font-size: 9px; letter-spacing: 0.04em; }
+.reader-record-top__time { color: var(--records-cobalt); font-size: 10px; font-variant-numeric: tabular-nums; }
+.reader-record-top button,
+.reader-record-top a { border-radius: 0; }
+
+.records-reader .epub-container,
+.records-epub-reader { background: var(--records-paper); }
+.records-epub-reader .reader-page-bar { display: none; }
+
+.reader-track-intro {
+  margin: 0 auto;
+  max-width: 768px;
+  overflow: hidden;
+  padding: 36px 32px 0;
+  position: relative;
+}
+.reader-track-intro__ghost {
+  color: transparent;
+  font-family: 'Anton', Impact, sans-serif;
+  font-size: 176px;
+  line-height: 1;
+  position: absolute;
+  right: -4px;
+  top: 4px;
+  -webkit-text-stroke: 1.5px var(--records-rule);
+}
+.reader-track-intro__meta { align-items: center; display: flex; gap: 13px; position: relative; }
+.reader-track-intro__meta strong {
+  color: var(--records-cobalt);
+  font-family: 'Anton', Impact, sans-serif;
+  font-size: 15px;
+  font-weight: 400;
+  letter-spacing: 0.08em;
+}
+.reader-track-intro__meta span,
+.reader-track-intro > p {
+  color: var(--records-faint);
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 9px;
+  letter-spacing: 0.07em;
+}
+.reader-track-intro h1 {
+  font-family: 'Noto Sans SC', 'PingFang SC', sans-serif;
+  font-size: 27px;
+  font-weight: 900;
+  line-height: 1.5;
+  margin: 12px 0 8px;
+  max-width: 86%;
+  position: relative;
+}
+.reader-preview {
+  align-items: stretch;
+  background: transparent;
+  border: 1.5px solid var(--records-ink);
+  display: flex;
+  margin-top: 23px;
+  min-height: 58px;
+  position: relative;
+  text-align: left;
+  width: 100%;
+}
+.reader-preview > span:first-child {
+  align-items: center;
+  background: var(--records-ink);
+  color: var(--records-paper);
+  display: flex;
+  font-family: 'Anton', Impact, sans-serif;
+  font-size: 13px;
+  justify-content: center;
+  letter-spacing: 0.1em;
+  padding: 0 14px;
+}
+.reader-preview > span:nth-child(2) { display: flex; flex: 1; flex-direction: column; justify-content: center; padding: 9px 13px; }
+.reader-preview b { font-size: 13px; font-weight: 700; }
+.reader-preview small { color: var(--records-faint); font-family: 'IBM Plex Mono', monospace; font-size: 9px; margin-top: 2px; }
+.reader-preview time { align-items: center; border-left: 1px solid var(--records-rule); color: var(--records-cobalt); display: flex; font-family: 'IBM Plex Mono', monospace; font-size: 11px; padding: 0 13px; }
+
+.records-epub-content {
+  color: var(--records-ink);
+  counter-reset: liner-section liner-list;
+  font-family: 'Songti SC', 'Noto Serif SC', Georgia, serif;
+  font-size: 17px;
+  line-height: 2.05;
+  padding-bottom: 150px;
+}
+.records-epub-content > h1:first-child { display: none; }
+.records-epub-content p { margin: 0 0 1.45em; text-align: justify; }
+.records-epub-content h2,
+.records-epub-content h3 {
+  align-items: center;
+  display: flex;
+  font-family: 'Noto Sans SC', 'PingFang SC', sans-serif;
+  font-size: 19px;
+  font-weight: 900;
+  gap: 13px;
+  margin: 2.2em 0 1em;
+}
+.records-epub-content h2::before,
+.records-epub-content h3::before {
+  color: var(--records-cobalt);
+  content: 'SIDE ' counter(liner-section, upper-alpha);
+  counter-increment: liner-section;
+  font-family: 'Anton', Impact, sans-serif;
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: 0.1em;
+  white-space: nowrap;
+}
+.records-epub-content h2::after,
+.records-epub-content h3::after { background: var(--records-ink); content: ''; flex: 1; height: 1.5px; }
+.records-epub-content h4 { font-family: 'Noto Sans SC', 'PingFang SC', sans-serif; font-size: 17px; font-weight: 900; }
+.records-epub-content ol,
+.records-epub-content ul { counter-reset: liner-list; list-style: none; padding-left: 0; }
+.records-epub-content li { border-bottom: 1px solid var(--records-rule); display: flex; gap: 14px; margin: 0; padding: 9px 2px; }
+.records-epub-content li:first-child { border-top: 1.5px solid var(--records-ink); }
+.records-epub-content li::before {
+  color: var(--records-cobalt);
+  content: 'A' counter(liner-list);
+  counter-increment: liner-list;
+  flex: 0 0 auto;
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 10px;
+}
+.records-epub-content blockquote {
+  border-left: 2px solid var(--records-cobalt);
+  color: var(--records-muted);
+  font-family: 'Noto Sans SC', 'PingFang SC', sans-serif;
+  font-size: 13px;
+  font-style: normal;
+  line-height: 1.8;
+  margin: 1.5em 0;
+  padding: 22px 0 0 14px;
+  position: relative;
+}
+.records-epub-content blockquote::before { color: var(--records-cobalt); content: 'LINER NOTES'; font-family: 'IBM Plex Mono', monospace; font-size: 9px; left: 14px; letter-spacing: 0.14em; position: absolute; top: 0; }
+.records-epub-content code { border-bottom: 1px dotted var(--records-faint); font-family: 'IBM Plex Mono', monospace; font-size: 0.82em; }
+
+.reader-player {
+  background: rgba(244, 241, 234, 0.98);
+  border-top: 1.5px solid var(--records-ink);
+  color: var(--records-ink);
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+  z-index: 30;
+}
+.reader-player__scrub { background: var(--records-rule); height: 3px; }
+.reader-player__scrub i { background: var(--records-cobalt); display: block; height: 3px; transition: width 0.12s linear; }
+.reader-player__inner { align-items: center; display: flex; gap: 15px; margin: 0 auto; max-width: 768px; padding: 10px 20px; }
+.reader-player time { color: var(--records-muted); font-family: 'IBM Plex Mono', monospace; font-size: 9px; font-variant-numeric: tabular-nums; }
+.reader-player__controls { align-items: center; display: flex; flex: 1; gap: 22px; justify-content: center; }
+.reader-player button { align-items: center; background: transparent; display: inline-flex; justify-content: center; min-height: 36px; min-width: 36px; }
+.reader-player button svg { height: 17px; width: 17px; }
+.reader-player button:disabled { opacity: 0.25; }
+.reader-player__track { border: 1.5px solid var(--records-ink); font-family: 'IBM Plex Mono', monospace; font-size: 10px; gap: 7px; letter-spacing: 0.08em; padding: 0 11px; }
+.reader-player__track svg { height: 13px !important; width: 13px !important; }
+
+@media (max-width: 767px) {
+  .records-masthead { padding-top: 27px; }
+  .records-library__main { padding: 0 18px; }
+  .record-crate { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .record-sleeve { padding: 13px; }
+  .record-sleeve__number { font-size: 52px; }
+  .now-playing-card { gap: 16px; padding: 18px 14px; }
+  .vinyl-progress { height: 102px; width: 102px; }
+  .vinyl-progress > span { line-height: 102px; }
+  .now-playing-card__copy h2 { font-size: 17px; }
+  .now-playing-card__question { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+  .reader-record-top .btn-secondary { display: none; }
+  .reader-track-intro { padding: calc(max(env(safe-area-inset-top), 54px) + 5.2rem) 24px 0; }
+  .reader-track-intro__ghost { top: calc(max(env(safe-area-inset-top), 54px) + 2rem); }
+  .reader-track-intro h1 { font-size: 25px; }
+  .records-epub-content { padding-left: 24px; padding-right: 24px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vinyl-progress__disc { animation: none; }
 }
 
 ::selection {

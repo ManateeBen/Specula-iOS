@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useMemo } from 'react'
-import { List, Sparkles } from 'lucide-react'
+import { List, SkipBack, SkipForward, Sparkles } from 'lucide-react'
 import type { Chapter, Highlight, ImageSelectionInfo } from '../../types'
 import { buildWeakPointIndexMap, getWeakPointColorSlot } from '../../utils/weakPointStyle'
 
@@ -270,6 +270,10 @@ interface Props {
   bookId: string
   chapters: Chapter[]
   chapterId: string | null
+  bookTitle?: string
+  chapterTitle?: string
+  chapterNumber?: number
+  runtimeMinutes?: number
   chromeVisible?: boolean
   onChapterChange: (chapterId: string) => void
   onToggleChrome?: () => void
@@ -284,6 +288,12 @@ interface Props {
   onImageSelect?: (info: ImageSelectionInfo) => void
   onUnlocatedChange?: (ids: string[]) => void
   onToggleToc?: () => void
+  onPreview?: () => void
+}
+
+function formatPlaybackTime(seconds: number): string {
+  const safeSeconds = Math.max(0, Math.round(seconds))
+  return `${String(Math.floor(safeSeconds / 60)).padStart(2, '0')}:${String(safeSeconds % 60).padStart(2, '0')}`
 }
 
 // We render EPUB chapters ourselves (chapter HTML fetched from the main process
@@ -294,6 +304,10 @@ export default function EpubReader({
   bookId,
   chapters,
   chapterId: currentChapterId,
+  bookTitle,
+  chapterTitle,
+  chapterNumber = 1,
+  runtimeMinutes = 3,
   chromeVisible = true,
   onChapterChange,
   onToggleChrome,
@@ -308,12 +322,17 @@ export default function EpubReader({
   onImageSelect,
   onUnlocatedChange,
   onToggleToc,
+  onPreview,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
   const prevChapterIdRef = useRef<string | null>(null)
   const [html, setHtml] = useState('')
   const [loading, setLoading] = useState(true)
+  const [scrollFraction, setScrollFraction] = useState(() => {
+    const initial = Number.parseFloat(initialPosition || '0')
+    return Number.isFinite(initial) ? Math.min(1, Math.max(0, initial)) : 0
+  })
   const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768)
   const [viewportVersion, setViewportVersion] = useState(0)
 
@@ -421,6 +440,7 @@ export default function EpubReader({
         if (!el) return
         const max = el.scrollHeight - el.clientHeight
         el.scrollTop = restore != null && max > 0 ? max * restore : 0
+        setScrollFraction(restore != null ? Math.min(1, Math.max(0, restore)) : 0)
       })
       onProgress(chapter.id, restore != null ? String(restore) : '0')
     })
@@ -533,6 +553,7 @@ export default function EpubReader({
     }
     const max = el.scrollHeight - el.clientHeight
     const fraction = max > 0 ? el.scrollTop / max : 0
+    setScrollFraction(fraction)
     if (scrollSaveTimer.current) clearTimeout(scrollSaveTimer.current)
     scrollSaveTimer.current = setTimeout(() => {
       onProgress(currentChapterId, String(fraction))
@@ -565,6 +586,8 @@ export default function EpubReader({
   }, [])
 
   const idx = chapters.findIndex((c) => c.id === currentChapterId)
+  const totalSeconds = runtimeMinutes * 60
+  const elapsedSeconds = totalSeconds * scrollFraction
   const clearSelectionState = () => {
     window.getSelection()?.removeAllRanges()
     if (contentRef.current) stripSelectionPreview(contentRef.current)
@@ -1117,7 +1140,7 @@ export default function EpubReader({
 
   return (
     <div
-      className="relative flex h-full flex-col bg-amber-50 transition-[padding] duration-200 dark:bg-gray-900"
+      className="records-epub-reader relative flex h-full flex-col transition-[padding] duration-200"
       style={
         isMobile && !chromeVisible
           ? { paddingTop: 'calc(max(env(safe-area-inset-top), 44px) + 0.5rem)' }
@@ -1133,18 +1156,36 @@ export default function EpubReader({
         {loading ? (
           <div className="p-10 text-center text-sm text-gray-500">加载章节中...</div>
         ) : (
-          <div
-            ref={contentRef}
-            className={`epub-content epub-content--images mx-auto max-w-3xl px-8 py-8 ${
-              isMobile ? 'epub-content--custom-select' : ''
-            }`}
-            onClick={handleClick}
-            onContextMenu={(event) => event.preventDefault()}
-            onTouchStart={handleCustomSelectionTouchStart}
-            onTouchMove={handleCustomSelectionTouchMove}
-            onTouchEnd={handleCustomSelectionTouchEnd}
-            onTouchCancel={handleCustomSelectionTouchEnd}
-          />
+          <>
+            <section className="reader-track-intro">
+              <span className="reader-track-intro__ghost">{String(chapterNumber).padStart(2, '0')}</span>
+              <div className="reader-track-intro__meta">
+                <strong>TRACK {String(chapterNumber).padStart(2, '0')}</strong>
+                <span>RUNTIME {formatPlaybackTime(totalSeconds)}</span>
+              </div>
+              <h1>{chapterTitle || bookTitle}</h1>
+              <p>{bookTitle} · {chapters.length} TRACKS</p>
+              {onPreview && (
+                <button type="button" onClick={onPreview} className="reader-preview" aria-label="快速浏览本章">
+                  <span>PREVIEW</span>
+                  <span><b>先试听本章主旨</b><small>浓缩核心知识 · 机制拷问</small></span>
+                  <time>3:00</time>
+                </button>
+              )}
+            </section>
+            <div
+              ref={contentRef}
+              className={`epub-content epub-content--images records-epub-content mx-auto max-w-3xl px-8 py-8 ${
+                isMobile ? 'epub-content--custom-select' : ''
+              }`}
+              onClick={handleClick}
+              onContextMenu={(event) => event.preventDefault()}
+              onTouchStart={handleCustomSelectionTouchStart}
+              onTouchMove={handleCustomSelectionTouchMove}
+              onTouchEnd={handleCustomSelectionTouchEnd}
+              onTouchCancel={handleCustomSelectionTouchEnd}
+            />
+          </>
         )}
       </div>
 
@@ -1171,6 +1212,27 @@ export default function EpubReader({
           </div>
         </div>
       )}
+
+      <div
+        className={`reader-player ${
+          isMobile ? `absolute inset-x-0 bottom-0 z-20 ${chromeVisible ? 'translate-y-0' : 'translate-y-full'}` : ''
+        }`}
+        style={isMobile ? { paddingBottom: 'calc(max(env(safe-area-inset-bottom), 18px) + 0.5rem)' } : undefined}
+      >
+        <div className="reader-player__scrub"><i style={{ width: `${scrollFraction * 100}%` }} /></div>
+        <div className="reader-player__inner">
+          <time>{formatPlaybackTime(elapsedSeconds)}</time>
+          <div className="reader-player__controls">
+            <button onClick={goPrev} disabled={idx <= 0} aria-label="上一章"><SkipBack /></button>
+            <button onClick={onToggleToc} className="reader-player__track" aria-label="目录">
+              <List />
+              {String(idx + 1).padStart(2, '0')} / {String(chapters.length).padStart(2, '0')}
+            </button>
+            <button onClick={goNext} disabled={idx >= chapters.length - 1} aria-label="下一章"><SkipForward /></button>
+          </div>
+          <time>{formatPlaybackTime(totalSeconds)}</time>
+        </div>
+      </div>
 
       <div
         className={`reader-page-bar ${

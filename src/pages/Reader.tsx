@@ -31,6 +31,19 @@ function normalizeChapterText(text: string): string {
   return text.replace(/\s+/g, '')
 }
 
+function estimateReadingMinutes(text: string): number {
+  const compact = text.replace(/\s+/g, '')
+  const latinWords = text.match(/[A-Za-z]+(?:[-'][A-Za-z]+)*/g)?.length || 0
+  const cjkCharacters = compact.match(/[\u3400-\u9fff]/g)?.length || 0
+  const minutes = cjkCharacters / 420 + latinWords / 210
+  return Math.max(3, Math.min(45, Math.ceil(minutes || compact.length / 650)))
+}
+
+function formatReaderTime(seconds: number): string {
+  const safeSeconds = Math.max(0, Math.round(seconds))
+  return `${String(Math.floor(safeSeconds / 60)).padStart(2, '0')}:${String(safeSeconds % 60).padStart(2, '0')}`
+}
+
 export default function Reader() {
   const { bookId } = useParams<{ bookId: string }>()
   const navigate = useNavigate()
@@ -61,6 +74,8 @@ export default function Reader() {
   const [activeHighlight, setActiveHighlight] = useState<Highlight | null>(null)
   const [currentChapterId, setCurrentChapterId] = useState<string | null>(null)
   const [initialPosition, setInitialPosition] = useState<string>('')
+  const [chapterProgress, setChapterProgress] = useState(0)
+  const [runtimeMinutes, setRuntimeMinutes] = useState(3)
   const [activeGap, setActiveGap] = useState<ChapterDigest | null>(null)
   const gapOpenedAt = useRef(0)
   const quickBrowseExposureTracked = useRef(false)
@@ -157,6 +172,19 @@ export default function Reader() {
   }, [bookId, deepLinkChapterId])
 
   useEffect(() => {
+    if (!currentChapterId || book?.format !== 'epub') return
+    let cancelled = false
+    window.specula.chapters.getContent(currentChapterId).then((content) => {
+      if (!cancelled) setRuntimeMinutes(estimateReadingMinutes(content))
+    }).catch(() => {
+      if (!cancelled) setRuntimeMinutes(3)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [book?.format, currentChapterId])
+
+  useEffect(() => {
     if (!bookId || !gapId) {
       setActiveGap(null)
       return
@@ -199,6 +227,8 @@ export default function Reader() {
   const handleProgress = useCallback(
     (chapterId: string | null, position: string) => {
       setCurrentChapterId(chapterId)
+      const fraction = Number.parseFloat(position)
+      if (Number.isFinite(fraction)) setChapterProgress(Math.min(1, Math.max(0, fraction)))
       pendingProgress.current = { chapterId, position }
       if (progressTimer.current) clearTimeout(progressTimer.current)
       progressTimer.current = setTimeout(flushProgress, 600)
@@ -244,6 +274,8 @@ export default function Reader() {
 
   const activeChapterId = currentChapterId ?? chapters[0]?.id ?? null
   const currentChapter = chapters.find((c) => c.id === activeChapterId)
+  const currentChapterNumber = Math.max(1, (currentChapter?.orderIndex ?? 0) + 1)
+  const elapsedTime = formatReaderTime(runtimeMinutes * 60 * chapterProgress)
   const chapterHighlights = highlights.filter((h) => h.chapterId === activeChapterId)
   const wpIndexMap = buildWeakPointIndexMap(chapterHighlights)
   const activeWeakPointIndex = activeHighlight ? getWeakPointIndex(activeHighlight, wpIndexMap) : null
@@ -291,7 +323,7 @@ export default function Reader() {
   }
 
   return (
-    <div className="relative flex h-full">
+    <div className="records-reader relative flex h-full">
       {tocOpen && isMobile && (
         <div
           className="absolute inset-0 z-20 bg-black/30 md:hidden"
@@ -312,7 +344,7 @@ export default function Reader() {
 
       <div className="relative flex flex-1 flex-col overflow-hidden">
         <div
-          className={`z-10 flex shrink-0 items-center justify-between gap-2 border-b border-gray-200 bg-white/95 px-3 py-2 shadow-sm backdrop-blur dark:border-gray-700 dark:bg-gray-900/95 sm:px-4 ${
+          className={`reader-record-top z-10 flex shrink-0 items-center justify-between gap-2 px-3 py-2 sm:px-4 ${
             isMobile
               ? `absolute inset-x-0 top-0 transition-transform duration-200 ${chromeVisible ? 'translate-y-0' : '-translate-y-full'}`
               : ''
@@ -339,6 +371,7 @@ export default function Reader() {
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+            {book.format === 'epub' && <span className="reader-record-top__time">{elapsedTime}</span>}
             {activeChapterId && (
               <>
                 {pdfAiDisabled ? (
@@ -378,7 +411,7 @@ export default function Reader() {
           </div>
         )}
 
-        {QUICK_BROWSE_ENABLED && !activeGap && chapters.length > 0 && !pdfAiDisabled && (
+        {QUICK_BROWSE_ENABLED && book.format === 'pdf' && !activeGap && chapters.length > 0 && !pdfAiDisabled && (
           <button
             type="button"
             onClick={() => {
@@ -425,6 +458,10 @@ export default function Reader() {
               bookId={book.id}
               chapters={chapters}
               chapterId={activeChapterId}
+              bookTitle={book.title}
+              chapterTitle={currentChapter?.title}
+              chapterNumber={currentChapterNumber}
+              runtimeMinutes={runtimeMinutes}
               chromeVisible={chromeVisible}
               onChapterChange={handleChapterChange}
               onToggleChrome={() => setChromeVisible((visible) => !visible)}
@@ -439,6 +476,12 @@ export default function Reader() {
               onImageSelect={handleImageSelect}
               onUnlocatedChange={setUnlocatedIds}
               onToggleToc={() => setTocOpen((open) => !open)}
+              onPreview={QUICK_BROWSE_ENABLED && activeChapterId && !pdfAiDisabled
+                ? () => {
+                    navigate(`/quick-browse/${book.id}/${activeChapterId}`)
+                    void window.specula.quickBrowse.track(book.id, 'quick_browse_entry_clicked', activeChapterId)
+                  }
+                : undefined}
             />
           ) : (
             <Suspense

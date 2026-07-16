@@ -1,11 +1,40 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Plus, BookOpen, Trash2, FileText } from 'lucide-react'
-import type { Book } from '../types'
+import { Plus, Trash2 } from 'lucide-react'
+import type { Book, Chapter, ChapterDigest, ReadingProgress } from '../types'
+
+interface RecordMeta {
+  chapters: Chapter[]
+  progress: ReadingProgress | null
+  percent: number
+  currentChapter: Chapter | null
+  openGaps: ChapterDigest[]
+}
+
+const sleeveColors = ['#2743d6', '#161616', '#bd3e27', '#176b5f', '#76384f', '#315469']
+
+function clamp(value: number): number {
+  return Math.min(1, Math.max(0, value))
+}
+
+function calculateProgress(chapters: Chapter[], progress: ReadingProgress | null): number {
+  if (!progress || chapters.length === 0) return 0
+  const chapterIndex = Math.max(0, chapters.findIndex((chapter) => chapter.id === progress.chapterId))
+  const position = clamp(Number.parseFloat(progress.position) || 0)
+  return clamp((chapterIndex + position) / chapters.length)
+}
+
+function formatDate(value?: string | null): string {
+  const date = value ? new Date(value) : new Date()
+  return new Intl.DateTimeFormat('en', { month: 'short', day: '2-digit' })
+    .format(date)
+    .toUpperCase()
+}
 
 export default function Library() {
   const [books, setBooks] = useState<Book[]>([])
   const [covers, setCovers] = useState<Record<string, string | null>>({})
+  const [metadata, setMetadata] = useState<Record<string, RecordMeta>>({})
   const [loading, setLoading] = useState(true)
   const [importing, setImporting] = useState(false)
   const [error, setError] = useState('')
@@ -16,16 +45,33 @@ export default function Library() {
     const list = await window.specula.books.list()
     setBooks(list)
 
-    const coverMap: Record<string, string | null> = {}
-    for (const book of list) {
-      coverMap[book.id] = await window.specula.books.getCoverUrl(book.coverPath)
-    }
-    setCovers(coverMap)
+    const entries = await Promise.all(list.map(async (book) => {
+      const [cover, chapters, progress, quickBrowse] = await Promise.all([
+        window.specula.books.getCoverUrl(book.coverPath),
+        window.specula.chapters.listByBook(book.id),
+        window.specula.books.getProgress(book.id),
+        window.specula.quickBrowse.getProgress(book.id).catch(() => null),
+      ])
+      const currentChapter = chapters.find((chapter) => chapter.id === progress?.chapterId) || chapters[0] || null
+      return [book.id, {
+        cover,
+        meta: {
+          chapters,
+          progress,
+          percent: calculateProgress(chapters, progress),
+          currentChapter,
+          openGaps: quickBrowse?.digests.filter((digest) => digest.status === 'gap') || [],
+        } satisfies RecordMeta,
+      }] as const
+    }))
+
+    setCovers(Object.fromEntries(entries.map(([id, value]) => [id, value.cover])))
+    setMetadata(Object.fromEntries(entries.map(([id, value]) => [id, value.meta])))
     setLoading(false)
   }
 
   useEffect(() => {
-    loadBooks()
+    void loadBooks()
     window.addEventListener('specula:library-updated', loadBooks)
     return () => window.removeEventListener('specula:library-updated', loadBooks)
   }, [])
@@ -39,7 +85,7 @@ export default function Library() {
       if (book) {
         await loadBooks()
         if (book.format === 'pdf' && book.pdfTextStatus !== 'text') {
-          setNotice(book.pdfAiUnsupportedReason || '该 PDF 暂不支持 AI 功能，开发中')
+          setNotice(book.pdfAiUnsupportedReason || '这本 PDF 暂不支持 AI 功能')
         }
       }
     } catch (err) {
@@ -49,105 +95,130 @@ export default function Library() {
     }
   }
 
-  const handleDelete = async (id: string, e: React.MouseEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    if (confirm('确定删除这本书吗？')) {
-      try {
-        await window.specula.books.delete(id)
-        await loadBooks()
-      } catch (err) {
-        setError(err instanceof Error ? err.message : '删除书籍失败')
-      }
+  const handleDelete = async (id: string, event: React.MouseEvent) => {
+    event.preventDefault()
+    event.stopPropagation()
+    if (!confirm('确定从唱片架移除这本书吗？')) return
+    try {
+      await window.specula.books.delete(id)
+      await loadBooks()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '删除书籍失败')
     }
   }
 
+  const nowReading = useMemo(() => {
+    return books
+      .filter((book) => metadata[book.id]?.progress && metadata[book.id]?.percent < 0.995)
+      .sort((a, b) => {
+        const aTime = new Date(metadata[a.id]?.progress?.updatedAt || 0).getTime()
+        const bTime = new Date(metadata[b.id]?.progress?.updatedAt || 0).getTime()
+        return bTime - aTime
+      })[0] || null
+  }, [books, metadata])
+
+  const totalTracks = Object.values(metadata).reduce((total, item) => total + item.chapters.length, 0)
+  const totalOpen = Object.values(metadata).reduce((total, item) => total + item.openGaps.length, 0)
+  const inRotation = Object.values(metadata).filter((item) => item.percent > 0 && item.percent < 0.995).length
+  const nowMeta = nowReading ? metadata[nowReading.id] : null
+  const nowPercent = Math.round((nowMeta?.percent || 0) * 100)
+  const nowGap = nowMeta?.openGaps.find((gap) => gap.chapterId === nowMeta.currentChapter?.id) || nowMeta?.openGaps[0]
+
   return (
-    <div className="h-full overflow-y-auto p-4 md:p-6" aria-label="library-page">
-      <div className="mx-auto max-w-6xl">
-        <div className="mb-6 flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold">我的书库</h1>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              导入 PDF 或 EPUB 电子书，开启 AI 辅助阅读
-            </p>
-          </div>
-          <button
-            onClick={handleImport}
-            disabled={importing}
-            className="btn-primary"
-            aria-label="import-book"
-          >
-            <Plus className="h-4 w-4" />
-            {importing ? '导入中...' : '导入书籍'}
-          </button>
+    <div className="records-library" aria-label="library-page">
+      <header className="records-masthead">
+        <div>
+          <h1>SPECULA</h1>
+          <p>READING · PRESSED DAILY</p>
+        </div>
+        <button type="button" onClick={handleImport} disabled={importing} aria-label="import-book">
+          <Plus aria-hidden />
+          {importing ? '导入中' : '导入'}
+        </button>
+      </header>
+
+      <main className="records-library__main">
+        {error && <div className="records-alert records-alert--error">{error}</div>}
+        {notice && <div className="records-alert">{notice}</div>}
+
+        {nowReading && nowMeta && (
+          <Link to={`/reader/${nowReading.id}`} className="now-playing-card" aria-label={`继续阅读-${nowReading.title}`}>
+            <span className="now-playing-card__label">NOW READING</span>
+            <div className="vinyl-progress" style={{ '--record-progress': `${nowPercent}%` } as React.CSSProperties}>
+              <div className="vinyl-progress__disc" />
+              <span>{nowPercent}%</span>
+            </div>
+            <div className="now-playing-card__copy">
+              <p className="records-mono">
+                TRACK {String((nowMeta.currentChapter?.orderIndex || 0) + 1).padStart(2, '0')} / {String(nowMeta.chapters.length).padStart(2, '0')}
+              </p>
+              <h2>{nowMeta.currentChapter?.title || nowReading.title}</h2>
+              {nowGap ? (
+                <p className="now-playing-card__question">未解问题：<strong>{nowGap.question}</strong></p>
+              ) : (
+                <p className="now-playing-card__question">正在播放：<strong>{nowReading.title}</strong></p>
+              )}
+              <span className="now-playing-card__continue"><i>▶</i> 继续播放</span>
+            </div>
+          </Link>
+        )}
+
+        <div className="records-ticker" aria-label="library-stats">
+          <span>THIS WEEK</span>
+          <span>IN ROTATION <b>{inRotation}</b></span>
+          <span>TRACKS <b>{totalTracks}</b></span>
+          <span className="records-ticker__accent">OPEN <b>{totalOpen}</b></span>
         </div>
 
-        {error && (
-          <div className="card mb-4 border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-400">
-            {error}
-          </div>
-        )}
-        {notice && (
-          <div className="card mb-4 border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
-            {notice}
-          </div>
-        )}
+        <div className="records-section-title">
+          <h2>COLLECTION</h2>
+          <span>{books.length} RECORDS</span>
+        </div>
 
         {loading ? (
-          <div className="py-20 text-center text-gray-500">加载中...</div>
-        ) : books.length === 0 ? (
-          <div
-            onClick={handleImport}
-            className="card flex cursor-pointer flex-col items-center justify-center py-20 transition hover:border-specula-300"
-          >
-            <BookOpen className="mb-4 h-16 w-16 text-gray-300" />
-            <p className="text-lg font-medium text-gray-600 dark:text-gray-400">书库为空</p>
-            <p className="mt-1 text-sm text-gray-500">点击导入 PDF 或 EPUB 电子书</p>
-          </div>
+          <div className="records-empty">CATALOGING RECORDS...</div>
         ) : (
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-            {books.map((book) => (
-              <Link
-                key={book.id}
-                to={`/reader/${book.id}`}
-                aria-label={`book-${book.title}`}
-                className="card group overflow-hidden transition hover:shadow-md"
-              >
-                <div className="relative aspect-[3/4] bg-gray-100 dark:bg-gray-800">
-                  {covers[book.id] ? (
-                    <img
-                      src={covers[book.id]!}
-                      alt={book.title}
-                      className="h-full w-full object-cover"
-                    />
-                  ) : (
-                    <div className="flex h-full items-center justify-center">
-                      <FileText className="h-12 w-12 text-gray-300" />
-                    </div>
-                  )}
-                  <span className="absolute right-2 top-2 rounded bg-black/60 px-1.5 py-0.5 text-xs uppercase text-white">
-                    {book.format}
-                  </span>
-                  <button
-                    onClick={(e) => handleDelete(book.id, e)}
-                    className="absolute left-2 top-2 rounded bg-red-500/80 p-2 text-white opacity-100 transition md:opacity-0 md:group-hover:opacity-100"
-                    aria-label="删除书籍"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-                <div className="p-3">
-                  <h3 className="line-clamp-2 text-sm font-medium">{book.title}</h3>
-                  {book.author && (
-                    <p className="mt-0.5 line-clamp-1 text-xs text-gray-500">{book.author}</p>
-                  )}
-                </div>
-              </Link>
-            ))}
+          <div className="record-crate">
+            {books.map((book, index) => {
+              const meta = metadata[book.id]
+              const percent = Math.round((meta?.percent || 0) * 100)
+              const complete = percent >= 100
+              return (
+                <Link key={book.id} to={`/reader/${book.id}`} className="record-item" aria-label={`book-${book.title}`}>
+                  <div className="record-sleeve" style={{ backgroundColor: sleeveColors[index % sleeveColors.length] }}>
+                    {covers[book.id] && <img src={covers[book.id]!} alt="" className="record-sleeve__art" />}
+                    <div className="record-sleeve__veil" />
+                    <span className="record-sleeve__catalog">SPC-{String(index + 1).padStart(3, '0')} · {book.format.toUpperCase()}</span>
+                    {complete && <span className="hype-sticker">READ<br />COMPLETE<br />{formatDate(meta?.progress?.updatedAt)}</span>}
+                    <span className="record-sleeve__number">{String(index + 1).padStart(2, '0')}</span>
+                    <h3>{book.title}</h3>
+                    <span className="record-sleeve__tracks">{meta?.chapters.length || 0} TRACKS · {book.author || 'UNKNOWN ARTIST'}</span>
+                    <button
+                      type="button"
+                      onClick={(event) => void handleDelete(book.id, event)}
+                      className="record-sleeve__delete"
+                      style={complete ? { top: 75 } : undefined}
+                      aria-label="删除书籍"
+                    >
+                      <Trash2 aria-hidden />
+                    </button>
+                  </div>
+                  <div className="record-item__meta">
+                    <strong>{book.title}</strong>
+                    <span>{complete ? 'COMPLETE' : `${percent}%`} · {meta?.openGaps.length || 0} OPEN</span>
+                    <i><b style={{ width: `${percent}%` }} /></i>
+                  </div>
+                </Link>
+              )
+            })}
+
+            <button type="button" onClick={handleImport} className="record-slot" aria-label="import-another-book">
+              <Plus aria-hidden />
+              <span>NEW RECORD</span>
+            </button>
           </div>
         )}
-      </div>
+      </main>
     </div>
   )
 }
