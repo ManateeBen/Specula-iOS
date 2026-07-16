@@ -84,13 +84,13 @@ interface DigestSource {
 
 function sampleChapterContent(content: string, maxChars = 16000): string {
   if (content.length <= maxChars) return content
-  const sectionLength = Math.floor(maxChars / 3)
-  const middleStart = Math.max(0, Math.floor(content.length / 2) - Math.floor(sectionLength / 2))
-  return [
-    content.slice(0, sectionLength),
-    content.slice(middleStart, middleStart + sectionLength),
-    content.slice(-sectionLength),
-  ].join('\n')
+  const sectionCount = 7
+  const sectionLength = Math.floor(maxChars / sectionCount)
+  const maxStart = content.length - sectionLength
+  return Array.from({ length: sectionCount }, (_, index) => {
+    const start = Math.round((maxStart * index) / (sectionCount - 1))
+    return content.slice(start, start + sectionLength)
+  }).join('\n')
 }
 
 function buildDigestSources(content: string): DigestSource[] {
@@ -164,7 +164,7 @@ function resolveExactAnchor(anchor: string, chapterContent: string): string {
   return contentChars.slice(sourceStart, sourceEnd + 1).join('').trim()
 }
 
-export async function generateChapterDigests(req: GenerateDigestRequest): Promise<GeneratedDigest[]> {
+async function generateChapterDigestsLegacy(req: GenerateDigestRequest): Promise<GeneratedDigest[]> {
   const client = await createClient()
   const model = await getModel()
   const sources = buildDigestSources(req.chapterContent)
@@ -287,6 +287,224 @@ export async function generateChapterDigests(req: GenerateDigestRequest): Promis
     throw new Error(`仅生成 ${combined.length} 张有效卡片：${retryReason || '模型返回内容不足'}`)
   }
   return combined.slice(0, 5)
+}
+
+interface ChapterKnowledgePoint {
+  name: string
+  whyCore: string
+  sourceIds: string[]
+  priority: number
+}
+
+function normalizeDigestSourceId(value: unknown): string | null {
+  if (typeof value !== 'string' && typeof value !== 'number') return null
+  const match = String(value).toUpperCase().match(/S?\d+/)?.[0]
+  return match ? `S${match.replace(/^S/, '')}` : null
+}
+
+function normalizeKnowledgePlan(raw: unknown, sourceMap: Map<string, string>): ChapterKnowledgePoint[] {
+  if (!raw || typeof raw !== 'object') return []
+  const value = raw as { concepts?: unknown[] }
+  if (!Array.isArray(value.concepts)) return []
+
+  const concepts = value.concepts.flatMap((item, index) => {
+    if (!item || typeof item !== 'object') return []
+    const concept = item as Record<string, unknown>
+    const name = typeof concept.name === 'string' ? concept.name.trim() : ''
+    const whyCoreValue = concept.why_core ?? concept.whyCore
+    const whyCore = typeof whyCoreValue === 'string' ? whyCoreValue.trim() : ''
+    const sourceValues = concept.source_ids ?? concept.sourceIds
+    const sourceIds = Array.isArray(sourceValues)
+      ? [...new Set(sourceValues
+        .map(normalizeDigestSourceId)
+        .filter((id): id is string => Boolean(id && sourceMap.has(id))))]
+      : []
+    if (!name || !whyCore || sourceIds.length === 0) return []
+    const priorityValue = Number(concept.priority)
+    return [{
+      name,
+      whyCore,
+      sourceIds: sourceIds.slice(0, 8),
+      priority: Number.isFinite(priorityValue) ? priorityValue : index + 1,
+    }]
+  })
+
+  return concepts
+    .filter((concept, index, items) => items.findIndex((item) => item.name === concept.name) === index)
+    .sort((a, b) => a.priority - b.priority)
+    .slice(0, 5)
+}
+
+function selectSourcesForPlan(plan: ChapterKnowledgePoint[], sources: DigestSource[]): DigestSource[] {
+  const selectedIndexes = new Set<number>()
+  const indexById = new Map(sources.map((source, index) => [source.id, index]))
+  plan.forEach((concept) => concept.sourceIds.forEach((sourceId) => {
+    const index = indexById.get(sourceId)
+    if (index === undefined) return
+    selectedIndexes.add(index)
+    if (index > 0) selectedIndexes.add(index - 1)
+    if (index + 1 < sources.length) selectedIndexes.add(index + 1)
+  }))
+  return [...selectedIndexes].sort((a, b) => a - b).map((index) => sources[index])
+}
+
+async function createChapterKnowledgePlan(
+  client: OpenAI,
+  model: string,
+  chapterTitle: string,
+  sourceText: string,
+  sourceMap: Map<string, string>,
+): Promise<ChapterKnowledgePoint[]> {
+  const response = await client.chat.completions.create({
+    model,
+    messages: [
+      {
+        role: 'system',
+        content: `你是资深非虚构图书编辑。先识别一章真正值得读者带走的知识骨架，不要直接写摘要或题目。
+要求：
+1. 根据章节知识密度选出 3-5 个核心知识点，并按重要性排序；不是固定凑满 5 个。
+2. 优先选择贯穿本章的概念、机制、模型、因果链、成立条件、边界或关键权衡。
+3. 排除章节导语、作者寒暄、目录式概述、重复表述、孤立案例、练习题和不影响主旨的细节；案例只有在承载核心规律时才可入选。
+4. 各知识点必须彼此独立且合起来覆盖本章论证主干，不能只是同一概念的不同措辞。
+5. source_ids 必须引用下方已有原文编号，且应足以支持该知识点的核心结论与机制。
+只输出 JSON：{"concepts":[{"name":"知识点名称","why_core":"它为何属于本章主干","source_ids":["S0"],"priority":1}]}`,
+      },
+      {
+        role: 'user',
+        content: `章节：${chapterTitle}\n\n候选原文片段：\n${sourceText}`,
+      },
+    ],
+    temperature: 0.2,
+    max_tokens: 1400,
+  })
+  const parsed = parseJsonFromResponse<unknown>(response.choices[0]?.message?.content || '')
+  const plan = normalizeKnowledgePlan(parsed, sourceMap)
+  return plan.length >= 3 ? plan : []
+}
+
+export async function generateChapterDigests(req: GenerateDigestRequest): Promise<GeneratedDigest[]> {
+  const client = await createClient()
+  const model = await getModel()
+  const sources = buildDigestSources(req.chapterContent)
+  if (sources.length < 3) return []
+  const sourceMap = new Map(sources.map((source) => [source.id, source.text]))
+  const sourceText = sources.map((source) => `[${source.id}] ${source.text}`).join('\n')
+
+  let plan: ChapterKnowledgePoint[] = []
+  try {
+    plan = await createChapterKnowledgePlan(client, model, req.chapterTitle, sourceText, sourceMap)
+  } catch {
+    return generateChapterDigestsLegacy(req)
+  }
+  if (plan.length < 3) return generateChapterDigestsLegacy(req)
+
+  const targetCount = plan.length
+  const plannedSources = selectSourcesForPlan(plan, sources)
+  const plannedSourceText = plannedSources.map((source) => `[${source.id}] ${source.text}`).join('\n')
+  const accepted: GeneratedDigest[] = []
+  const fallback: GeneratedDigest[] = []
+  let retryReason = ''
+
+  for (let attempt = 0; attempt < 3 && accepted.length < targetCount; attempt += 1) {
+    const remainingPlan = plan.filter((concept) =>
+      !accepted.some((card) => card.title === concept.name)
+    )
+    const response = await client.chat.completions.create({
+      model,
+      messages: [
+        {
+          role: 'system',
+          content: `你是阅读 App 的核心知识卡编辑。知识策划已完成，请严格根据策划生成卡片。
+要求：
+1. 每个策划知识点生成且只生成一张卡，保持策划顺序；标题优先使用策划名称，不得换成章节名或泛泛标题。
+2. summary 用 2-4 句、120 字以内说清“它是什么、核心结论是什么、在本章中有什么作用”，不写铺垫和案例细节。
+3. summary 只给结论（what），不得泄露问题所问的原因、机制、代价、边界或成立条件。
+4. question 必须追问该知识点最关键的 why：为什么成立、如何运作、边界在哪里、代价是什么。禁止“什么是……”式复述题，且不能仅凭 summary 回答。
+5. source_id 必须使用候选原文已有编号，并选择能直接回答 question 的片段。
+6. 每张卡独立成立，不得引用“上一张”“前面”等其他卡片。
+只输出 JSON：{"cards":[{"title":"策划知识点名称","summary":"结论","key_terms":["术语"],"question":"机制拷问","source_id":"S0"}]}`,
+        },
+        {
+          role: 'user',
+          content: `章节：${req.chapterTitle}
+本轮知识策划（必须逐项制卡）：${JSON.stringify(remainingPlan)}
+${retryReason ? `上轮问题：${retryReason}\n` : ''}
+候选原文片段：\n${plannedSourceText}`,
+        },
+      ],
+      temperature: attempt === 0 ? 0.35 : 0.55,
+      max_tokens: MAX_TOKENS_DIGEST,
+    })
+
+    let candidates: GeneratedDigest[] = []
+    try {
+      const parsed = parseJsonFromResponse<{ cards?: unknown[] } | unknown[]>(response.choices[0]?.message?.content || '')
+      const rawCards = Array.isArray(parsed) ? parsed : parsed.cards || []
+      candidates = rawCards
+        .map((item) => normalizeGeneratedDigest(item, sourceMap))
+        .filter((item): item is GeneratedDigest => item !== null)
+        .map((digest) => ({
+          ...digest,
+          answerAnchor: resolveExactAnchor(digest.answerAnchor, req.chapterContent),
+        }))
+        .filter((digest) => !locallyValidateDigest(digest, req.chapterContent))
+        .filter((digest, index, items) =>
+          items.findIndex((item) => item.title === digest.title || item.question === digest.question) === index
+          && !accepted.some((item) => item.title === digest.title || item.question === digest.question)
+        )
+    } catch {
+      retryReason = '返回内容不是合法 JSON'
+      continue
+    }
+    if (candidates.length === 0) {
+      retryReason = '没有生成字段完整、锚点有效且互不重复的卡片'
+      continue
+    }
+    fallback.push(...candidates.filter((candidate) =>
+      !fallback.some((item) => item.title === candidate.title || item.question === candidate.question)
+    ))
+
+    try {
+      const judge = await client.chat.completions.create({
+        model,
+        messages: [
+          {
+            role: 'system',
+            content: '逐张检查：仅凭 summary 是否足以回答 question。若摘要已经包含问题要求的原因、机制、代价、边界或条件，answerable 为 true。只输出 JSON：{"results":[{"card_index":0,"answerable":false,"reason":"原因"}]}。',
+          },
+          {
+            role: 'user',
+            content: JSON.stringify(candidates.map((card, cardIndex) => ({
+              card_index: cardIndex,
+              summary: card.summary,
+              question: card.question,
+            }))),
+          },
+        ],
+        temperature: 0,
+        max_tokens: 700,
+      })
+      const judged = parseJsonFromResponse<{
+        results?: { card_index?: number; answerable?: boolean }[]
+      }>(judge.choices[0]?.message?.content || '')
+      const passed = candidates.filter((_, index) =>
+        judged.results?.find((result) => Number(result.card_index) === index)?.answerable !== true
+      )
+      accepted.push(...passed)
+      retryReason = `还缺 ${Math.max(0, targetCount - accepted.length)} 张策划知识卡`
+    } catch {
+      accepted.push(...candidates)
+      retryReason = '质量复核格式异常，已保留通过本地校验的卡片'
+    }
+  }
+
+  const combined = [
+    ...accepted,
+    ...fallback.filter((candidate) =>
+      !accepted.some((item) => item.title === candidate.title || item.question === candidate.question)
+    ),
+  ].slice(0, targetCount)
+  return combined.length >= 3 ? combined : generateChapterDigestsLegacy(req)
 }
 
 export async function explainImageStream(req: ImageExplainRequest): Promise<void> {

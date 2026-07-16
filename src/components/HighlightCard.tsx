@@ -1,5 +1,6 @@
 import { AlertTriangle, Highlighter, X } from 'lucide-react'
 import type { Highlight } from '../types'
+import MarkdownContent from './MarkdownContent'
 
 interface Props {
   highlight: Highlight
@@ -40,7 +41,7 @@ export default function HighlightCard({ highlight, weakPointIndex, onClose, onDe
         )}
 
         {highlight.aiExplanation ? (
-          <div className="highlight-card__body">{highlight.aiExplanation}</div>
+          <MarkdownContent className="highlight-card__body">{highlight.aiExplanation}</MarkdownContent>
         ) : (
           <div className="highlight-card__empty">暂无解释内容</div>
         )}

@@ -17,6 +17,135 @@
   }
 }
 
+.markdown-content {
+  color: inherit;
+  font-size: 0.875rem;
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+}
+
+.markdown-content > :first-child {
+  margin-top: 0;
+}
+
+.markdown-content > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown-content p,
+.markdown-content ul,
+.markdown-content ol,
+.markdown-content blockquote,
+.markdown-content pre,
+.markdown-content table {
+  margin: 0.65rem 0;
+}
+
+.markdown-content h1,
+.markdown-content h2,
+.markdown-content h3,
+.markdown-content h4 {
+  margin: 1rem 0 0.45rem;
+  color: inherit;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.markdown-content h1 { font-size: 1.15rem; }
+.markdown-content h2 { font-size: 1.05rem; }
+.markdown-content h3,
+.markdown-content h4 { font-size: 0.95rem; }
+
+.markdown-content ul,
+.markdown-content ol {
+  padding-left: 1.35rem;
+}
+
+.markdown-content ul { list-style: disc; }
+.markdown-content ol { list-style: decimal; }
+.markdown-content li { margin: 0.25rem 0; }
+.markdown-content li > ul,
+.markdown-content li > ol { margin: 0.2rem 0; }
+
+.markdown-content strong {
+  color: rgb(17 24 39);
+  font-weight: 700;
+}
+
+.dark .markdown-content strong {
+  color: rgb(243 244 246);
+}
+
+.markdown-content blockquote {
+  border-left: 3px solid rgb(14 165 233);
+  background: rgb(240 249 255);
+  padding: 0.5rem 0.75rem;
+  color: rgb(75 85 99);
+}
+
+.dark .markdown-content blockquote {
+  background: rgb(8 47 73 / 0.45);
+  color: rgb(209 213 219);
+}
+
+.markdown-content code {
+  border-radius: 4px;
+  background: rgb(243 244 246);
+  padding: 0.1rem 0.3rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.82em;
+}
+
+.dark .markdown-content code {
+  background: rgb(31 41 55);
+}
+
+.markdown-content pre {
+  max-width: 100%;
+  overflow-x: auto;
+  border-radius: 6px;
+  background: rgb(17 24 39);
+  padding: 0.75rem;
+  color: rgb(243 244 246);
+}
+
+.markdown-content pre code {
+  background: transparent;
+  padding: 0;
+  color: inherit;
+}
+
+.markdown-content table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+
+.markdown-content th,
+.markdown-content td {
+  border: 1px solid rgb(209 213 219);
+  padding: 0.4rem 0.55rem;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.dark .markdown-content th,
+.dark .markdown-content td {
+  border-color: rgb(75 85 99);
+}
+
+.markdown-content a {
+  color: rgb(2 132 199);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.markdown-content hr {
+  margin: 0.9rem 0;
+  border-color: rgb(229 231 235);
+}
+
 @layer utilities {
   .safe-top {
     padding-top: env(safe-area-inset-top);

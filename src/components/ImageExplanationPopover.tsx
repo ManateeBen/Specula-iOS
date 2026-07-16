@@ -3,6 +3,7 @@ import { Sparkles, X, Loader2 } from 'lucide-react'
 import TeachingModePicker from './TeachingModePicker'
 import type { TeachingMode, ImageSelectionInfo } from '../types'
 import { useSettingsStore } from '../stores/settingsStore'
+import MarkdownContent from './MarkdownContent'
 
 interface Props {
   selection: ImageSelectionInfo
@@ -152,8 +153,8 @@ export default function ImageExplanationPopover({
         {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
 
         {explanation && (
-          <div className="prose prose-sm max-w-none dark:prose-invert">
-            <div className="whitespace-pre-wrap text-sm leading-relaxed">{explanation}</div>
+          <div>
+            <MarkdownContent>{explanation}</MarkdownContent>
             {streaming && <Loader2 className="mt-2 h-4 w-4 animate-spin text-specula-500" />}
           </div>
         )}
