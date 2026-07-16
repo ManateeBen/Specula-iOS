@@ -14,6 +14,58 @@ export type TeachingMode =
   | 'practice'
   | 'history'
 
+export type ExplanationNeed =
+  | 'not_understood'
+  | 'clarify'
+  | 'memorize'
+  | 'why_design'
+  | 'apply'
+
+export type ExplanationTone = 'rigorous' | 'casual'
+
+export interface ExplanationSection {
+  label: string
+  text: string
+}
+
+export type ExplanationTail =
+  | {
+      type: 'check'
+      question: string
+      answer: boolean
+      feedbackRight: string
+      feedbackWrong: string
+    }
+  | { type: 'deeper'; question: string }
+  | { type: 'flashcard'; front: string; back: string }
+  | { type: 'pattern'; question: string }
+  | { type: 'action'; task: string }
+  | { type: 'none' }
+
+export interface StructuredExplanation {
+  sections: ExplanationSection[]
+  tail: ExplanationTail
+  fallback: boolean
+  fromCache: boolean
+}
+
+export interface ExplainNeedRequest {
+  bookId: string
+  chapterId: string | null
+  selectedText: string
+  contextBefore: string
+  need: ExplanationNeed
+  tone: ExplanationTone
+  bookTitle?: string
+  chapterTitle?: string
+  followUp?: string
+}
+
+export interface InferredExplanationNeed {
+  need: ExplanationNeed
+  reason: string
+}
+
 export interface Book {
   id: string
   title: string
@@ -162,6 +214,8 @@ export interface AppSettings {
   baseURL: string
   model: string
   defaultTeachingMode: TeachingMode
+  defaultExplanationNeed: ExplanationNeed
+  explanationTone: ExplanationTone
   darkMode: boolean
   // Vision model (for explaining images) — DeepSeek's API is text-only, so a
   // separate OpenAI-compatible vision endpoint is used (e.g. Aliyun DashScope / Qwen-VL).
@@ -268,6 +322,39 @@ export interface SpeculaAPI {
     explain: (req: ExplainRequest) => Promise<string>
     explainStream: (req: ExplainRequest) => Promise<void>
     explainImageStream: (req: ImageExplainRequest) => Promise<void>
+    inferNeed: (bookId: string, selectedText: string) => Promise<InferredExplanationNeed | null>
+    explainNeed: (req: ExplainNeedRequest) => Promise<StructuredExplanation>
+    recordNeedSwitch: (data: {
+      bookId: string
+      chapterId: string | null
+      inferredNeed: ExplanationNeed | null
+      from: ExplanationNeed
+      to: ExplanationNeed
+    }) => Promise<void>
+    markNeedsReview: (data: {
+      bookId: string
+      chapterId: string | null
+      selectedText: string
+      question: string
+    }) => Promise<void>
+    saveFlashcard: (data: {
+      bookId: string
+      chapterId: string | null
+      selectedText: string
+      front: string
+      back: string
+    }) => Promise<void>
+    saveExploration: (data: {
+      bookId: string
+      chapterId: string | null
+      selectedText: string
+      question: string
+    }) => Promise<void>
+    createLearningTask: (data: {
+      bookId: string
+      chapterId: string | null
+      task: string
+    }) => Promise<void>
     onExplainChunk: (
       callback: (chunk: string) => void,
       onError?: (message: string) => void
@@ -336,4 +423,12 @@ export const TEACHING_MODE_DESCRIPTIONS: Record<TeachingMode, string> = {
   summary: '极简 TL;DR，快速抓住要点复习',
   practice: '聚焦如何应用、怎么动手实践',
   history: '追溯概念的由来与演变脉络',
+}
+
+export const EXPLANATION_NEED_LABELS: Record<ExplanationNeed, string> = {
+  not_understood: '完全没懂',
+  clarify: '再讲透一点',
+  memorize: '帮我记住',
+  why_design: '为什么这样设计',
+  apply: '怎么用起来',
 }

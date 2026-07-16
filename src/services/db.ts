@@ -175,12 +175,63 @@ export async function initDatabase(): Promise<SqlJsDatabase> {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS ai_explanation_cache (
+      id TEXT PRIMARY KEY,
+      book_id TEXT NOT NULL,
+      selection_hash TEXT NOT NULL,
+      need TEXT NOT NULL,
+      tone TEXT NOT NULL,
+      result_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(book_id, selection_hash, need, tone)
+    );
+
+    CREATE TABLE IF NOT EXISTS ai_selection_history (
+      book_id TEXT NOT NULL,
+      selection_hash TEXT NOT NULL,
+      request_count INTEGER NOT NULL DEFAULT 1,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (book_id, selection_hash)
+    );
+
+    CREATE TABLE IF NOT EXISTS review_cards (
+      id TEXT PRIMARY KEY,
+      book_id TEXT NOT NULL,
+      chapter_id TEXT,
+      source_text TEXT NOT NULL,
+      front TEXT NOT NULL,
+      back TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'queued',
+      due_at TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS exploration_items (
+      id TEXT PRIMARY KEY,
+      book_id TEXT NOT NULL,
+      chapter_id TEXT,
+      source_text TEXT NOT NULL,
+      question TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS learning_tasks (
+      id TEXT PRIMARY KEY,
+      book_id TEXT NOT NULL,
+      chapter_id TEXT,
+      task TEXT NOT NULL,
+      remind_at TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE INDEX IF NOT EXISTS idx_chapters_book ON chapters(book_id);
     CREATE INDEX IF NOT EXISTS idx_highlights_book ON highlights(book_id);
     CREATE INDEX IF NOT EXISTS idx_quizzes_chapter ON quizzes(chapter_id);
     CREATE INDEX IF NOT EXISTS idx_quick_browse_book ON quick_browse_digests(book_id);
     CREATE INDEX IF NOT EXISTS idx_quick_browse_cards_chapter ON quick_browse_cards(chapter_id, card_index);
     CREATE INDEX IF NOT EXISTS idx_analytics_event_name ON analytics_events(event_name);
+    CREATE INDEX IF NOT EXISTS idx_ai_explanation_cache_lookup ON ai_explanation_cache(book_id, selection_hash, need, tone);
+    CREATE INDEX IF NOT EXISTS idx_review_cards_due ON review_cards(status, due_at);
   `)
 
   try { db.run(`ALTER TABLE highlights ADD COLUMN source TEXT NOT NULL DEFAULT 'user'`) } catch { /* exists */ }

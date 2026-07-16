@@ -1238,6 +1238,84 @@
   .vinyl-progress__disc { animation: none; }
 }
 
+/* AI explanation sheet */
+.ai-explain-dim {
+  background: rgba(20, 20, 20, 0.32);
+  border: 0;
+  inset: 0;
+  position: fixed;
+  z-index: 80;
+}
+.ai-explain-sheet {
+  background: var(--records-paper);
+  border-top: 2px solid var(--records-ink);
+  bottom: 0;
+  color: var(--records-ink);
+  display: flex;
+  left: 0;
+  max-height: 86vh;
+  position: fixed;
+  right: 0;
+  z-index: 90;
+}
+.ai-explain-inner { display: flex; flex-direction: column; margin: 0 auto; max-width: 560px; min-height: 0; width: 100%; }
+.ai-explain-header { align-items: center; display: flex; justify-content: space-between; padding: 16px 22px 0; }
+.ai-explain-header h2 { font-family: 'Anton', Impact, sans-serif; font-size: 15px; font-weight: 400; letter-spacing: 0.12em; }
+.ai-explain-header button { align-items: center; display: inline-flex; justify-content: center; min-height: 32px; min-width: 32px; }
+.ai-explain-quote {
+  border-left: 2px solid var(--records-ink);
+  color: var(--records-muted);
+  display: -webkit-box;
+  font-family: 'Noto Serif SC', 'Songti SC', serif;
+  font-size: 13px;
+  line-height: 1.8;
+  margin: 14px 22px 0;
+  overflow: hidden;
+  padding: 8px 14px;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.ai-explain-guess { color: var(--records-faint); font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.08em; margin: 12px 22px 0; }
+.ai-explain-guess b { color: var(--records-cobalt); font-weight: 500; }
+.ai-explain-needs { display: flex; flex: 0 0 auto; gap: 8px; overflow-x: auto; padding: 10px 22px 14px; scrollbar-width: none; }
+.ai-explain-needs::-webkit-scrollbar { display: none; }
+.ai-explain-needs button {
+  background: var(--records-paper);
+  border: 1.5px solid var(--records-ink);
+  color: var(--records-ink);
+  flex: 0 0 auto;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 9px 15px;
+  white-space: nowrap;
+}
+.ai-explain-needs button.is-current { background: var(--records-ink); color: var(--records-paper); }
+.ai-explain-needs button small { color: #607cff; font-size: 10px; }
+.ai-explain-content { border-top: 1px solid var(--records-rule); min-height: 210px; overflow-y: auto; padding: 6px 22px calc(26px + env(safe-area-inset-bottom)); }
+.ai-explain-loading { align-items: center; color: var(--records-muted); display: flex; font-size: 13px; gap: 8px; justify-content: center; min-height: 180px; }
+.ai-explain-section > span { color: var(--records-cobalt); display: block; font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.12em; margin: 18px 0 6px; text-transform: uppercase; }
+.ai-explain-section > p { font-family: 'Noto Serif SC', 'Songti SC', serif; font-size: 15.5px; line-height: 2; margin: 0; white-space: pre-line; }
+.ai-explain-section strong { background: linear-gradient(transparent 64%, rgba(39, 67, 214, 0.12) 0); font-weight: 600; }
+.ai-explain-followup { border-left: 2px solid var(--records-cobalt); margin-top: 18px; padding-left: 14px; }
+.ai-explain-tail { border: 1.5px solid var(--records-ink); margin-top: 18px; padding: 14px 16px; }
+.ai-explain-tail > span { color: var(--records-faint); font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.16em; }
+.ai-explain-tail > p { font-size: 14.5px; font-weight: 700; line-height: 1.7; margin: 6px 0 12px; }
+.ai-explain-tail-row { display: flex; gap: 10px; }
+.ai-explain-tail button { background: var(--records-paper); border: 1.5px solid var(--records-ink); color: var(--records-ink); flex: 1; font-size: 13.5px; font-weight: 700; min-height: 43px; padding: 9px 12px; }
+.ai-explain-tail button.is-primary,
+.ai-explain-wide-action { background: var(--records-ink) !important; color: var(--records-paper) !important; width: 100%; }
+.ai-explain-tail button:disabled { opacity: 0.5; }
+.ai-explain-feedback { border-left: 2px solid var(--records-cobalt); color: var(--records-muted); font-size: 13px; line-height: 1.8; margin-top: 12px; padding-left: 12px; }
+.ai-explain-mini-card { border: 1.5px dashed var(--records-cobalt); margin: 8px 0 12px; padding: 12px 14px; }
+.ai-explain-mini-card b { display: block; font-size: 13.5px; }
+.ai-explain-mini-card small { color: var(--records-muted); display: block; font-family: 'IBM Plex Mono', monospace; font-size: 11px; margin-top: 7px; }
+.ai-explain-error { color: #b42318; font-size: 13px; margin: 14px 0; }
+.ai-explain-saved { color: var(--records-cobalt); font-family: 'IBM Plex Mono', monospace; font-size: 10px; margin-top: 14px; text-align: center; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-explain-sheet * { animation: none !important; transition: none !important; }
+}
+
 ::selection {
   @apply bg-yellow-200 dark:bg-yellow-700;
 }

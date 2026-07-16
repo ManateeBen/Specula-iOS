@@ -13,6 +13,7 @@ import * as bookService from './book.service'
 import * as aiService from './ai.service'
 import * as settingsService from './settings.service'
 import * as quickBrowseService from './quickBrowse.service'
+import * as explanationService from './explanation.service'
 import { getFileUrl } from './storage'
 import { onExplainChunk } from './streamEvents'
 
@@ -92,6 +93,25 @@ export const speculaApi: SpeculaAPI = {
     explain: (req: ExplainRequest) => aiService.explainText(req),
     explainStream: (req: ExplainRequest) => aiService.explainTextStream(req),
     explainImageStream: (req) => aiService.explainImageStream(req),
+    inferNeed: (bookId, selectedText) => Promise.resolve(explanationService.inferNeed(bookId, selectedText)),
+    explainNeed: (req) => explanationService.explainNeed(req),
+    recordNeedSwitch: (data) => {
+      explanationService.recordNeedSwitch(data)
+      return Promise.resolve()
+    },
+    markNeedsReview: (data) => {
+      explanationService.markNeedsReview(data)
+      return Promise.resolve()
+    },
+    saveFlashcard: (data) => {
+      explanationService.saveFlashcard(data)
+      return Promise.resolve()
+    },
+    saveExploration: (data) => {
+      explanationService.saveExploration(data)
+      return Promise.resolve()
+    },
+    createLearningTask: (data) => explanationService.createLearningTask(data),
     onExplainChunk,
     generateQuiz: (req: GenerateQuizRequest) => aiService.generateQuiz(req),
     gradeQuiz: (req: GradeQuizRequest) => aiService.gradeQuiz(req),

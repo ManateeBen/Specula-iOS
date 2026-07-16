@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { Sparkles, X, Loader2 } from 'lucide-react'
-import TeachingModePicker from './TeachingModePicker'
-import type { TeachingMode, ImageSelectionInfo } from '../types'
+import type { ImageSelectionInfo, TeachingMode } from '../types'
 import { useSettingsStore } from '../stores/settingsStore'
 import MarkdownContent from './MarkdownContent'
 
@@ -24,8 +23,11 @@ export default function ImageExplanationPopover({
   onClose,
   onSaved,
 }: Props) {
-  const defaultMode = useSettingsStore((s) => s.defaultTeachingMode)
-  const [mode, setMode] = useState<TeachingMode>(defaultMode)
+  const defaultNeed = useSettingsStore((s) => s.defaultExplanationNeed)
+  const mode = ({
+    not_understood: 'analogy', clarify: 'contrast', memorize: 'summary',
+    why_design: 'history', apply: 'practice',
+  } as const)[defaultNeed] as TeachingMode
   const [loading, setLoading] = useState(false)
   const [explanation, setExplanation] = useState('')
   const [streaming, setStreaming] = useState(false)
@@ -133,8 +135,6 @@ export default function ImageExplanationPopover({
             {selection.imageCaption || selection.imageAltText}
           </p>
         )}
-
-        <TeachingModePicker value={mode} onChange={setMode} compact />
 
         {!explanation && !loading && (
           <button onClick={handleExplain} className="btn-primary w-full">

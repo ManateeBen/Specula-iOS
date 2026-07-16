@@ -1,5 +1,5 @@
 import { Preferences } from '@capacitor/preferences'
-import type { AppSettings, TeachingMode } from '../types'
+import type { AppSettings, ExplanationNeed, ExplanationTone, TeachingMode } from '../types'
 
 const BUILTIN_TEXT_API_KEY = import.meta.env.VITE_SPECULA_TEXT_API_KEY || ''
 const BUILTIN_VISION_API_KEY = import.meta.env.VITE_SPECULA_VISION_API_KEY || ''
@@ -9,6 +9,8 @@ const KEYS = {
   baseURL: 'baseURL',
   model: 'model',
   defaultTeachingMode: 'defaultTeachingMode',
+  defaultExplanationNeed: 'defaultExplanationNeed',
+  explanationTone: 'explanationTone',
   darkMode: 'darkMode',
   visionApiKey: 'visionApiKey',
   visionBaseURL: 'visionBaseURL',
@@ -20,6 +22,8 @@ const DEFAULTS: AppSettings = {
   baseURL: 'https://api.deepseek.com',
   model: 'deepseek-chat',
   defaultTeachingMode: 'direct',
+  defaultExplanationNeed: 'not_understood',
+  explanationTone: 'rigorous',
   darkMode: false,
   visionApiKey: '',
   visionBaseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
@@ -36,14 +40,24 @@ async function setPref(key: string, value: string): Promise<void> {
 }
 
 export async function getSettings(): Promise<AppSettings> {
-  const [defaultTeachingMode, darkMode] = await Promise.all([
+  const [defaultTeachingMode, storedNeed, explanationTone, darkMode] = await Promise.all([
     getPref(KEYS.defaultTeachingMode, DEFAULTS.defaultTeachingMode),
+    getPref(KEYS.defaultExplanationNeed, ''),
+    getPref(KEYS.explanationTone, DEFAULTS.explanationTone),
     getPref(KEYS.darkMode, String(DEFAULTS.darkMode)),
   ])
+
+  const legacyNeedMap: Record<TeachingMode, ExplanationNeed> = {
+    direct: 'not_understood', socratic: 'not_understood', feynman: 'not_understood',
+    analogy: 'not_understood', case: 'apply', contrast: 'clarify', story: 'not_understood',
+    structure: 'not_understood', summary: 'memorize', practice: 'apply', history: 'why_design',
+  }
 
   return {
     ...DEFAULTS,
     defaultTeachingMode: defaultTeachingMode as TeachingMode,
+    defaultExplanationNeed: (storedNeed || legacyNeedMap[defaultTeachingMode as TeachingMode] || 'not_understood') as ExplanationNeed,
+    explanationTone: explanationTone as ExplanationTone,
     darkMode: darkMode === 'true',
   }
 }
@@ -70,6 +84,10 @@ export async function getTextConfig(): Promise<{ apiKey: string; baseURL: string
     baseURL: DEFAULTS.baseURL,
     model: DEFAULTS.model,
   }
+  if (partial.defaultExplanationNeed !== undefined) {
+    tasks.push(setPref(KEYS.defaultExplanationNeed, partial.defaultExplanationNeed))
+  }
+  if (partial.explanationTone !== undefined) tasks.push(setPref(KEYS.explanationTone, partial.explanationTone))
 }
 
 export async function getVisionConfig(): Promise<{ apiKey: string; baseURL: string; model: string }> {

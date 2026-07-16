@@ -7,6 +7,16 @@ final class AppUITests: XCTestCase {
         continueAfterFailure = false
         app = XCUIApplication()
         app.launchArguments += ["--uitesting"]
+        addUIInterruptionMonitor(withDescription: "Notification permission") { alert in
+            for label in ["Allow", "允许", "允许通知"] {
+                let button = alert.buttons[label]
+                if button.exists {
+                    button.tap()
+                    return true
+                }
+            }
+            return false
+        }
         app.launch()
     }
 
@@ -22,6 +32,8 @@ final class AppUITests: XCTestCase {
         normalizeReaderToFirstChapter()
         waitForAny("Welcome to Specula", timeout: 20)
         attachScreenshot(named: "03-reader")
+
+        runAIExplanationFlow()
 
         swipeReaderUp()
         attachScreenshot(named: "03-reader-progress")
@@ -43,7 +55,48 @@ final class AppUITests: XCTestCase {
 
         tapAny(["settings-tab", "设置"])
         waitForAny(["settings-page", "设置"], timeout: 10)
+        waitForAny(["默认讲解偏好", "严谨", "轻松"], timeout: 10)
+        tapAny(["帮我记住"])
+        tapAny(["轻松"])
         attachScreenshot(named: "10-settings")
+    }
+
+    private func runAIExplanationFlow() {
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.28, dy: 0.40))
+        let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.72, dy: 0.40))
+        start.press(forDuration: 0.65, thenDragTo: end)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.8))
+
+        tapAny(["AI 解释"])
+        waitForAny(["AI 解释面板", "完全没懂"], timeout: 12)
+        attachScreenshot(named: "03-ai-explanation")
+
+        waitForAny(["CHECK · 一道是非题", "CHECK"], timeout: 60)
+        attachScreenshot(named: "03-ai-loaded")
+        tapAny(["错"])
+
+        tapAny(["再讲透一点"])
+        waitForAny(["GO DEEPER"], timeout: 60)
+        tapAny(["已经透了"])
+
+        tapAny(["帮我记住"])
+        waitForAny(["FLASHCARD"], timeout: 60)
+        tapAfterScrolling("save-flashcard")
+        waitForAny(["flashcard-saved"], timeout: 10)
+
+        tapAny(["为什么这样设计"])
+        waitForAny(["PATTERN"], timeout: 60)
+        tapAfterScrolling("save-exploration")
+        waitForAny(["exploration-saved"], timeout: 10)
+
+        tapAny(["怎么用起来"])
+        waitForAny(["5-MIN ACTION"], timeout: 60)
+        tapAfterScrolling("claim-learning-task")
+        app.tap()
+        waitForAny(["learning-task-claimed"], timeout: 15)
+        attachScreenshot(named: "03-ai-tail-actions")
+        tapAny(["关闭"])
+        waitForAny("Welcome to Specula", timeout: 10)
     }
 
     private func runQuickBrowseGapLoop() {
@@ -94,6 +147,21 @@ final class AppUITests: XCTestCase {
     private func tapAny(_ identifiers: [String]) {
         let element = findAny(identifiers, timeout: 10)
         element.tap()
+    }
+
+    private func tapAfterScrolling(_ identifier: String) {
+        let deadline = Date().addingTimeInterval(12)
+        while Date() < deadline {
+            let element = app.descendants(matching: .any)
+                .matching(identifier: identifier)
+                .firstMatch
+            if element.exists && element.isHittable {
+                element.tap()
+                return
+            }
+            drag(from: CGVector(dx: 0.52, dy: 0.86), to: CGVector(dx: 0.52, dy: 0.58))
+        }
+        XCTFail("Missing hittable UI element: \(identifier)")
     }
 
     private func findAny(_ identifiers: [String], timeout: TimeInterval) -> XCUIElement {

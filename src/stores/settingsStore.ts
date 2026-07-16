@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { AppSettings, TeachingMode } from '../types'
+import type { AppSettings, ExplanationNeed, ExplanationTone, TeachingMode } from '../types'
 
 interface SettingsState extends AppSettings {
   loaded: boolean
@@ -12,6 +12,8 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   baseURL: 'https://api.deepseek.com',
   model: 'deepseek-chat',
   defaultTeachingMode: 'direct' as TeachingMode,
+  defaultExplanationNeed: 'not_understood' as ExplanationNeed,
+  explanationTone: 'rigorous' as ExplanationTone,
   darkMode: false,
   visionApiKey: '',
   visionBaseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
