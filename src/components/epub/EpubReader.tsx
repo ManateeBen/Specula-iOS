@@ -382,6 +382,7 @@ export default function EpubReader({
     lastY: 0,
     startedAt: 0,
     tracking: false,
+    startedInCodeBlock: false,
   })
   // Debounce timer for persisting the intra-chapter scroll position.
   const scrollSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -636,7 +637,7 @@ export default function EpubReader({
   const finishSwipeIfNeeded = () => {
     const swipe = swipeRef.current
     swipe.tracking = false
-    if (!isMobile || customSelectionRef.current.selecting || selInfoRef.current) return false
+    if (!isMobile || swipe.startedInCodeBlock || customSelectionRef.current.selecting || selInfoRef.current) return false
 
     const dx = swipe.lastX - swipe.startX
     const dy = swipe.lastY - swipe.startY
@@ -924,6 +925,7 @@ export default function EpubReader({
       lastY: touch.clientY,
       startedAt: Date.now(),
       tracking: true,
+      startedInCodeBlock: Boolean(target.closest('pre')),
     }
     customSelectionRef.current.startX = touch.clientX
     customSelectionRef.current.startY = touch.clientY

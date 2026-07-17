@@ -71,6 +71,23 @@ final class AppUITests: XCTestCase {
         runQuickBrowseGapLoop()
     }
 
+    func testEpubChapterSwipeNavigation() throws {
+        waitForAny("Specula", timeout: 20)
+        waitForAny("Specula Getting Started", timeout: 20)
+        tapSampleBookCard()
+        waitForAny("Specula Getting Started", timeout: 20)
+        normalizeReaderToFirstChapter()
+        waitForAny("Welcome to Specula", timeout: 20)
+
+        swipeReaderLeft()
+        waitForAny("How AI Reading Helps", timeout: 10)
+        attachScreenshot(named: "epub-swipe-next")
+
+        swipeReaderRight()
+        waitForAny("Welcome to Specula", timeout: 10)
+        attachScreenshot(named: "epub-swipe-previous")
+    }
+
     private func runAIExplanationFlow() {
         let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.28, dy: 0.40))
         let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.72, dy: 0.40))
