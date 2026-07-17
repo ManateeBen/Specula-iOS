@@ -1717,6 +1717,9 @@
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
+.ai-explain-image-preview { align-items: center; display: flex; gap: 12px; margin: 12px 22px 2px; min-height: 74px; }
+.ai-explain-image-preview img { border: 1px solid var(--records-rule); height: 72px; object-fit: contain; width: 92px; }
+.ai-explain-image-preview span { color: var(--records-muted); display: -webkit-box; font-family: 'IBM Plex Mono', monospace; font-size: 9px; line-height: 1.6; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
 .ai-explain-needs { display: flex; flex: 0 0 auto; gap: 8px; overflow-x: auto; padding: 10px 22px 14px; scrollbar-width: none; }
 .ai-explain-needs::-webkit-scrollbar { display: none; }
 .ai-explain-needs button {
@@ -1753,6 +1756,7 @@
 .ai-explain-mini-card b { display: block; font-size: 13.5px; }
 .ai-explain-mini-card small { color: var(--records-muted); display: block; font-family: 'IBM Plex Mono', monospace; font-size: 11px; margin-top: 7px; }
 .ai-explain-error { color: #b42318; font-size: 13px; margin: 14px 0; }
+.ai-explain-save { background: transparent; border: 1.5px solid var(--records-ink); color: var(--records-ink); font-size: 13px; font-weight: 700; margin-top: 18px; min-height: 43px; width: 100%; }
 .ai-explain-saved { color: var(--records-cobalt); font-family: 'IBM Plex Mono', monospace; font-size: 10px; margin-top: 14px; text-align: center; }
 
 @media (prefers-reduced-motion: reduce) {

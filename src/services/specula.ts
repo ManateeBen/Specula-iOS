@@ -93,6 +93,7 @@ export const speculaApi: SpeculaAPI = {
     explain: (req: ExplainRequest) => aiService.explainText(req),
     explainStream: (req: ExplainRequest) => aiService.explainTextStream(req),
     explainImageStream: (req) => aiService.explainImageStream(req),
+    explainImageNeed: (req) => explanationService.explainImageNeed(req),
     inferNeed: (bookId, selectedText) => Promise.resolve(explanationService.inferNeed(bookId, selectedText)),
     explainNeed: (req) => explanationService.explainNeed(req),
     recordNeedSwitch: (data) => {

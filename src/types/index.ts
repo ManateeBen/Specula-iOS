@@ -61,6 +61,20 @@ export interface ExplainNeedRequest {
   followUp?: string
 }
 
+export interface ImageExplainNeedRequest {
+  bookId: string
+  chapterId: string | null
+  imageDataUrl: string
+  altText: string
+  caption: string
+  context: string
+  need: ExplanationNeed
+  tone: ExplanationTone
+  bookTitle?: string
+  chapterTitle?: string
+  followUp?: string
+}
+
 export interface InferredExplanationNeed {
   need: ExplanationNeed
   reason: string
@@ -321,6 +335,7 @@ export interface SpeculaAPI {
     explain: (req: ExplainRequest) => Promise<string>
     explainStream: (req: ExplainRequest) => Promise<void>
     explainImageStream: (req: ImageExplainRequest) => Promise<void>
+    explainImageNeed: (req: ImageExplainNeedRequest) => Promise<StructuredExplanation>
     inferNeed: (bookId: string, selectedText: string) => Promise<InferredExplanationNeed | null>
     explainNeed: (req: ExplainNeedRequest) => Promise<StructuredExplanation>
     recordNeedSwitch: (data: {

@@ -374,6 +374,7 @@ export default function PdfReader({
           className="pdf-image-explain-button"
           type="button"
           onClick={handleExplainCurrentPage}
+          aria-label="pdf-image-explain"
         >
           AI识图
         </button>
