@@ -88,6 +88,21 @@ final class AppUITests: XCTestCase {
         attachScreenshot(named: "epub-swipe-previous")
     }
 
+    func testRecordStyleTableOfContents() throws {
+        waitForAny("Specula", timeout: 20)
+        waitForAny("Specula Getting Started", timeout: 20)
+        tapSampleBookCard()
+        waitForAny("Specula Getting Started", timeout: 20)
+        normalizeReaderToFirstChapter()
+        waitForAny("Welcome to Specula", timeout: 20)
+
+        tapAny(["reader-toggle-toc", "目录"])
+        waitForAny(["record-toc", "TRACK LIST"], timeout: 10)
+        attachScreenshot(named: "record-style-toc")
+        tapAny(["toc-track-2"])
+        waitForAny("How AI Reading Helps", timeout: 10)
+    }
+
     private func runAIExplanationFlow() {
         let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.28, dy: 0.40))
         let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.72, dy: 0.40))

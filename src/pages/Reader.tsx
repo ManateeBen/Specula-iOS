@@ -326,18 +326,19 @@ export default function Reader() {
     <div className="records-reader relative flex h-full">
       {tocOpen && isMobile && (
         <div
-          className="absolute inset-0 z-20 bg-black/30 md:hidden"
+          className="records-toc-backdrop absolute inset-0 z-20 md:hidden"
           onClick={() => {
             setTocOpen(false)
           }}
         />
       )}
       {tocOpen && (
-        <aside className="absolute inset-y-0 left-0 z-30 w-64 max-w-[85vw] shrink-0 overflow-hidden border-r border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-900 md:relative md:z-auto md:w-56 md:max-w-none md:shadow-none">
+        <aside className="records-toc-shell absolute inset-y-0 left-0 z-30 shrink-0 overflow-hidden md:relative md:z-auto">
           <ChapterToc
             chapters={chapters}
             currentChapterId={activeChapterId}
             onSelect={handleTocSelect}
+            onClose={() => setTocOpen(false)}
           />
         </aside>
       )}

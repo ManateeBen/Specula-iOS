@@ -1350,6 +1350,129 @@
 
 /* Reader as album liner notes. */
 .records-reader { isolation: isolate; }
+.records-toc-backdrop {
+  background: rgba(20, 20, 20, 0.46);
+  backdrop-filter: grayscale(0.35);
+}
+.records-toc-shell {
+  background: var(--records-paper);
+  border-right: 1.5px solid var(--records-ink);
+  box-shadow: 7px 0 0 var(--records-cobalt);
+  color: var(--records-ink);
+  width: min(82vw, 330px);
+}
+.records-toc {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.records-toc__header {
+  align-items: flex-end;
+  border-bottom: 1.5px solid var(--records-ink);
+  display: flex;
+  flex: 0 0 auto;
+  justify-content: space-between;
+  padding: calc(max(env(safe-area-inset-top), 47px) + 16px) 18px 15px;
+}
+.records-toc__header span,
+.records-toc__meta,
+.records-toc__number,
+.records-toc button small,
+.records-toc > footer,
+.records-toc__empty {
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  letter-spacing: 0;
+}
+.records-toc__header span {
+  color: var(--records-cobalt);
+  display: block;
+  font-size: 8px;
+  margin-bottom: 6px;
+}
+.records-toc__header h2 {
+  font-family: 'Anton', Impact, sans-serif;
+  font-size: 24px;
+  font-weight: 400;
+  line-height: 1;
+}
+.records-toc__header button {
+  align-items: center;
+  background: transparent;
+  border: 1.5px solid var(--records-ink);
+  display: inline-flex;
+  height: 38px;
+  justify-content: center;
+  width: 38px;
+}
+.records-toc__header button svg { height: 17px; width: 17px; }
+.records-toc__meta {
+  align-items: center;
+  border-bottom: 1px solid var(--records-rule);
+  color: var(--records-faint);
+  display: flex;
+  flex: 0 0 auto;
+  font-size: 9px;
+  justify-content: space-between;
+  padding: 10px 18px;
+}
+.records-toc__meta span:first-child { color: var(--records-cobalt); font-weight: 700; }
+.records-toc__list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+}
+.records-toc__list::-webkit-scrollbar { display: none; }
+.records-toc__list ol { list-style: none; margin: 0; padding: 0; }
+.records-toc__list li { border-bottom: 1px solid var(--records-rule); }
+.records-toc__list button {
+  align-items: start;
+  background: transparent;
+  color: var(--records-ink);
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 30px minmax(0, 1fr);
+  min-height: 62px;
+  padding: 13px 16px 12px;
+  position: relative;
+  text-align: left;
+  width: 100%;
+}
+.records-toc__list button:active { background: rgba(39, 67, 214, 0.08); }
+.records-toc__number {
+  color: var(--records-faint);
+  font-size: 10px;
+  padding-top: 3px;
+}
+.records-toc__title {
+  font-family: 'Noto Sans SC', 'PingFang SC', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+.records-toc__list button small {
+  color: var(--records-yellow);
+  font-size: 7px;
+  grid-column: 2;
+  margin-top: -5px;
+}
+.records-toc__list button.is-playing {
+  background: var(--records-ink);
+  box-shadow: inset 5px 0 0 var(--records-cobalt);
+  color: var(--records-paper);
+}
+.records-toc__list button.is-playing .records-toc__number { color: #6f83ee; }
+.records-toc__empty { color: var(--records-faint); font-size: 9px; padding: 34px 18px; text-align: center; }
+.records-toc > footer {
+  border-top: 1.5px solid var(--records-ink);
+  color: var(--records-faint);
+  flex: 0 0 auto;
+  font-size: 8px;
+  padding: 12px 18px calc(max(env(safe-area-inset-bottom), 18px) + 68px);
+}
 .reader-record-top {
   background: rgba(244, 241, 234, 0.97);
   border-bottom: 1.5px solid var(--records-ink);
@@ -1535,6 +1658,12 @@
   .reader-track-intro__ghost { top: calc(max(env(safe-area-inset-top), 54px) + 2rem); }
   .reader-track-intro h1 { font-size: 25px; }
   .records-epub-content { padding-left: 24px; padding-right: 24px; }
+}
+
+@media (min-width: 768px) {
+  .records-toc-shell { box-shadow: none; width: 278px; }
+  .records-toc__header { padding-top: 22px; }
+  .records-toc > footer { padding-bottom: 15px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
