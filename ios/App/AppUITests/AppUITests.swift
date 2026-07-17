@@ -61,6 +61,16 @@ final class AppUITests: XCTestCase {
         attachScreenshot(named: "10-settings")
     }
 
+    func testQuickBrowseRecordDesign() throws {
+        waitForAny("Specula", timeout: 20)
+        waitForAny("Specula Getting Started", timeout: 20)
+        tapSampleBookCard()
+        waitForAny("Specula Getting Started", timeout: 20)
+        normalizeReaderToFirstChapter()
+        waitForAny("Welcome to Specula", timeout: 20)
+        runQuickBrowseGapLoop()
+    }
+
     private func runAIExplanationFlow() {
         let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.28, dy: 0.40))
         let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.72, dy: 0.40))
@@ -103,34 +113,34 @@ final class AppUITests: XCTestCase {
         tapAny(["快速浏览本章"])
         RunLoop.current.run(until: Date().addingTimeInterval(1))
         attachScreenshot(named: "04-after-quick-browse-tap")
-        waitForAny(["quick-browse-page", "快速浏览本章"], timeout: 20)
-        let reset = app.buttons["重新浏览"].firstMatch
+        waitForAny(["preview-loading", "quick-browse-reset", "quick-browse-answer-gap-1"], timeout: 20)
+        let reset = app.buttons["quick-browse-reset"].firstMatch
         if reset.exists && reset.isHittable {
             reset.tap()
             RunLoop.current.run(until: Date().addingTimeInterval(0.8))
         }
-        waitForAny("答不上来", timeout: 90)
+        waitForAny("quick-browse-answer-gap-1", timeout: 90)
         attachScreenshot(named: "04-quick-browse-card")
 
-        tapAny(["答不上来"])
+        tapAny(["quick-browse-answer-gap-1"])
         RunLoop.current.run(until: Date().addingTimeInterval(0.8))
 
-        for _ in 0..<4 {
-            let confident = app.buttons["我能答上来"].firstMatch
+        for index in 2...5 {
+            let confident = app.buttons["quick-browse-answer-confident-\(index)"].firstMatch
             guard confident.waitForExistence(timeout: 2) else { break }
             confident.tap()
             RunLoop.current.run(until: Date().addingTimeInterval(0.8))
         }
 
-        waitForAny("发现 1 个认知缺口", timeout: 15)
+        waitForAny("1 个待答问题", timeout: 15)
         attachScreenshot(named: "05-quick-browse-summary")
         tapAny(["quick-browse-gap-1"])
         RunLoop.current.run(until: Date().addingTimeInterval(1))
         attachScreenshot(named: "06-after-gap-tap")
-        waitForAny(["认知缺口问题钉", "你带着一个问题来"], timeout: 15)
+        waitForAny(["mark-question-answered", "我答上了"], timeout: 15)
         attachScreenshot(named: "06-gap-anchor")
-        tapAny(["我搞懂了，修复缺口"])
-        waitForAny(["quick-browse-page", "快速浏览本章"], timeout: 15)
+        tapAny(["mark-question-answered"])
+        waitForAny(["quick-browse-summary", "ALL RECORDED"], timeout: 15)
         attachScreenshot(named: "07-gap-repaired")
         tapAny(["quick-browse-back"])
         waitForAny("Welcome to Specula", timeout: 15)

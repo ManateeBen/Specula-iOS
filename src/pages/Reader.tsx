@@ -427,7 +427,7 @@ export default function Reader() {
             </span>
             <span className="min-w-0 flex-1">
               <span className="block text-sm font-semibold text-specula-900 dark:text-specula-100">快速浏览本章</span>
-              <span className="mt-0.5 block truncate text-xs text-specula-700 dark:text-specula-300">3 分钟抓住主旨 · 顺便测测你真懂了多少</span>
+              <span className="mt-0.5 block truncate text-xs text-specula-700 dark:text-specula-300">3 分钟试听本章 · 留下一道追问</span>
             </span>
             <ChevronRight className="h-5 w-5 shrink-0 text-specula-500" />
           </button>
@@ -436,15 +436,15 @@ export default function Reader() {
         {activeGap && activeGap.chapterId === activeChapterId && (
           <div
             role="region"
-            className={`z-10 shrink-0 rounded-lg border border-dashed border-red-400 bg-red-50/95 px-4 py-3 dark:border-red-700 dark:bg-red-950/60 ${isMobile ? 'absolute inset-x-3' : 'mx-3 mt-3'}`}
+            className={`z-10 shrink-0 border border-dashed border-specula-600 bg-[#f4f1ea]/95 px-4 py-3 text-[#141414] ${isMobile ? 'absolute inset-x-3' : 'mx-3 mt-3'}`}
             style={isMobile ? { top: 'calc(max(env(safe-area-inset-top), 54px) + 4.25rem)' } : undefined}
-            aria-label="认知缺口问题钉"
+            aria-label="pending-question-pin"
           >
-            <p className="text-xs font-semibold text-red-700 dark:text-red-300">你带着一个问题来</p>
+            <p className="font-mono text-xs font-semibold text-specula-700">OPEN QUESTION · 你带着一个待答问题来</p>
             <p className="mt-1 text-sm font-semibold leading-6">{activeGap.question}</p>
-            <button onClick={() => void handleRepairGap()} className="mt-3 min-h-11 rounded-lg bg-red-600 px-4 text-sm font-semibold text-white active:bg-red-700">
+            <button onClick={() => void handleRepairGap()} aria-label="mark-question-answered" className="mt-3 min-h-11 bg-[#141414] px-4 text-sm font-semibold text-[#f4f1ea] active:opacity-80">
               <Check className="mr-1 inline h-4 w-4" />
-              我搞懂了，修复缺口
+              我答上了
             </button>
           </div>
         )}

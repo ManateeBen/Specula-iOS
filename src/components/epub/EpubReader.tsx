@@ -1168,7 +1168,7 @@ export default function EpubReader({
               {onPreview && (
                 <button type="button" onClick={onPreview} className="reader-preview" aria-label="快速浏览本章">
                   <span>PREVIEW</span>
-                  <span><b>先试听本章主旨</b><small>浓缩核心知识 · 机制拷问</small></span>
+                  <span><b>先试听本章主旨</b><small>浓缩核心知识 · 留下一道追问</small></span>
                   <time>3:00</time>
                 </button>
               )}

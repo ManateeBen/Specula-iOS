@@ -184,7 +184,7 @@ export function repair(bookId: string, cardId: string): ChapterDigest {
     [bookId, cardId]
   )
   const digest = getProgress(bookId).digests.find((item) => item.id === cardId)
-  if (!digest) throw new Error('认知缺口不存在')
+  if (!digest) throw new Error('待答问题不存在')
   track(bookId, 'quick_browse_gap_repaired', digest.chapterId, { cardId })
   return digest
 }

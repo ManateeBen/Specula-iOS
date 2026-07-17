@@ -190,7 +190,7 @@ async function generateChapterDigestsLegacy(req: GenerateDigestRequest): Promise
 3. question 只追问为什么、凭什么、代价、边界或成立条件（why）。读者看完 summary 会觉得自己懂了，但不能仅凭 summary 回答 question。
 4. source_id 必须选择下方原文片段已有的编号，该片段应能回答 question。禁止编造编号或复制改写原文。
 5. 每张卡独立成立，不得出现“上一张”“如下文”等依赖其他卡片的表达。
-只输出 JSON：{"cards":[{"title":"核心概念标题","summary":"结论","key_terms":["术语"],"question":"机制拷问","source_id":"S0"}]}`,
+只输出 JSON：{"cards":[{"title":"核心概念标题","summary":"结论","key_terms":["术语"],"question":"关键追问","source_id":"S0"}]}`,
           },
           {
             role: 'user',
@@ -422,7 +422,7 @@ export async function generateChapterDigests(req: GenerateDigestRequest): Promis
 4. question 必须追问该知识点最关键的 why：为什么成立、如何运作、边界在哪里、代价是什么。禁止“什么是……”式复述题，且不能仅凭 summary 回答。
 5. source_id 必须使用候选原文已有编号，并选择能直接回答 question 的片段。
 6. 每张卡独立成立，不得引用“上一张”“前面”等其他卡片。
-只输出 JSON：{"cards":[{"title":"策划知识点名称","summary":"结论","key_terms":["术语"],"question":"机制拷问","source_id":"S0"}]}`,
+只输出 JSON：{"cards":[{"title":"策划知识点名称","summary":"结论","key_terms":["术语"],"question":"关键追问","source_id":"S0"}]}`,
         },
         {
           role: 'user',
