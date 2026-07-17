@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { Sparkles, X, Loader2 } from 'lucide-react'
 import type { ImageSelectionInfo, TeachingMode } from '../types'
-import { useSettingsStore } from '../stores/settingsStore'
 import MarkdownContent from './MarkdownContent'
 
 interface Props {
@@ -23,11 +22,7 @@ export default function ImageExplanationPopover({
   onClose,
   onSaved,
 }: Props) {
-  const defaultNeed = useSettingsStore((s) => s.defaultExplanationNeed)
-  const mode = ({
-    not_understood: 'analogy', clarify: 'contrast', memorize: 'summary',
-    why_design: 'history', apply: 'practice',
-  } as const)[defaultNeed] as TeachingMode
+  const mode: TeachingMode = 'analogy'
   const [loading, setLoading] = useState(false)
   const [explanation, setExplanation] = useState('')
   const [streaming, setStreaming] = useState(false)

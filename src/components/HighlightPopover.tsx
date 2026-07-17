@@ -57,12 +57,8 @@ export default function HighlightPopover({
   onClose,
   onSaved,
 }: Props) {
-  const defaultNeed = useSettingsStore((state) => state.defaultExplanationNeed)
   const tone = useSettingsStore((state) => state.explanationTone)
-  const [need, setNeed] = useState<ExplanationNeed>(defaultNeed)
-  const [inferredNeed, setInferredNeed] = useState<ExplanationNeed | null>(null)
-  const [inferenceReason, setInferenceReason] = useState('')
-  const [ready, setReady] = useState(false)
+  const [need, setNeed] = useState<ExplanationNeed | null>(null)
   const [results, setResults] = useState<Partial<Record<ExplanationNeed, StructuredExplanation>>>({})
   const [loadingNeed, setLoadingNeed] = useState<ExplanationNeed | null>(null)
   const [error, setError] = useState('')
@@ -70,27 +66,11 @@ export default function HighlightPopover({
   const [tailDone, setTailDone] = useState<Partial<Record<ExplanationNeed, boolean>>>({})
   const [followUpSections, setFollowUpSections] = useState<ExplanationSection[]>([])
   const [tailError, setTailError] = useState('')
-  const initialized = useRef(false)
   const savedHighlight = useRef(false)
   const requestSerial = useRef(0)
 
   useEffect(() => {
-    if (initialized.current) return
-    initialized.current = true
-    void window.specula.ai.inferNeed(bookId, selection.text).then((inferred) => {
-      if (inferred) {
-        setInferredNeed(inferred.need)
-        setInferenceReason(inferred.reason)
-        setNeed(inferred.need)
-      } else {
-        setNeed(defaultNeed)
-      }
-      setReady(true)
-    }).catch(() => setReady(true))
-  }, [bookId, defaultNeed, selection.text])
-
-  useEffect(() => {
-    if (!ready || results[need]) return
+    if (!need || results[need]) return
     const serial = ++requestSerial.current
     setLoadingNeed(need)
     setError('')
@@ -126,18 +106,20 @@ export default function HighlightPopover({
     }).finally(() => {
       if (serial === requestSerial.current) setLoadingNeed(null)
     })
-  }, [action, bookId, bookTitle, chapterId, chapterTitle, need, onSaved, ready, results, selection.context, selection.text, tone])
+  }, [action, bookId, bookTitle, chapterId, chapterTitle, need, onSaved, results, selection.context, selection.text, tone])
 
   const switchNeed = (next: ExplanationNeed) => {
     if (next === need) return
-    void window.specula.ai.recordNeedSwitch({ bookId, chapterId, inferredNeed, from: need, to: next })
+    if (need) {
+      void window.specula.ai.recordNeedSwitch({ bookId, chapterId, inferredNeed: null, from: need, to: next })
+    }
     setNeed(next)
     setCheckChoice(null)
     setFollowUpSections([])
     setTailError('')
   }
 
-  const result = results[need]
+  const result = need ? results[need] : undefined
   const tail = result?.tail
 
   const answerCheck = async (choice: boolean) => {
@@ -177,7 +159,7 @@ export default function HighlightPopover({
   }
 
   const performTailAction = async () => {
-    if (!tail || tailDone[need]) return
+    if (!need || !tail || tailDone[need]) return
     setTailError('')
     setTailDone((current) => ({ ...current, [need]: true }))
     try {
@@ -206,12 +188,6 @@ export default function HighlightPopover({
 
           <blockquote className="ai-explain-quote">{selection.text}</blockquote>
 
-          {inferredNeed && inferenceReason && (
-            <p className="ai-explain-guess">
-              GUESS — {inferenceReason}，已预选「<b>{EXPLANATION_NEED_LABELS[inferredNeed]}</b>」，可更换。
-            </p>
-          )}
-
           <div className="ai-explain-needs" role="radiogroup" aria-label="讲解需求">
             {NEEDS.map((item) => (
               <button
@@ -222,13 +198,19 @@ export default function HighlightPopover({
                 className={item === need ? 'is-current' : ''}
                 onClick={() => switchNeed(item)}
               >
-                {EXPLANATION_NEED_LABELS[item]}{item === inferredNeed ? <small> ·猜</small> : null}
+                {EXPLANATION_NEED_LABELS[item]}
               </button>
             ))}
           </div>
 
           <div className="ai-explain-content">
-            {(!ready || loadingNeed === need) && !result && (
+            {!need && (
+              <div className="ai-explain-empty" aria-label="ai-explain-choose-need">
+                <b>你想从哪个角度理解？</b>
+                <span>选择一种讲解方式后，AI 才会开始生成。</span>
+              </div>
+            )}
+            {need && loadingNeed === need && !result && (
               <div className="ai-explain-loading"><Loader2 className="h-4 w-4 animate-spin" /> 正在组织这次讲解</div>
             )}
             {error && <div className="ai-explain-error">{error}</div>}

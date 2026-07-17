@@ -55,8 +55,8 @@ final class AppUITests: XCTestCase {
 
         tapAny(["settings-tab", "设置"])
         waitForAny(["settings-page", "设置"], timeout: 10)
-        waitForAny(["默认讲解偏好", "严谨", "轻松"], timeout: 10)
-        tapAny(["帮我记住"])
+        waitForAny(["讲解语气", "严谨", "轻松"], timeout: 10)
+        XCTAssertFalse(app.staticTexts["默认讲解偏好"].exists)
         tapAny(["轻松"])
         attachScreenshot(named: "10-settings")
     }
@@ -111,8 +111,10 @@ final class AppUITests: XCTestCase {
 
         tapAny(["AI 解释"])
         waitForAny(["AI 解释面板", "完全没懂"], timeout: 12)
+        waitForAny("ai-explain-choose-need", timeout: 10)
         attachScreenshot(named: "03-ai-explanation")
 
+        tapAny(["完全没懂"])
         waitForAny(["CHECK · 一道是非题", "CHECK"], timeout: 60)
         attachScreenshot(named: "03-ai-loaded")
         tapAny(["错"])

@@ -1,30 +1,22 @@
 import { useEffect, useState } from 'react'
 import { Moon, Sun } from 'lucide-react'
 import { useSettingsStore } from '../stores/settingsStore'
-import {
-  EXPLANATION_NEED_LABELS,
-  type ExplanationNeed,
-  type ExplanationTone,
-} from '../types'
-
-const NEEDS = Object.keys(EXPLANATION_NEED_LABELS) as ExplanationNeed[]
+import { type ExplanationTone } from '../types'
 
 export default function Settings() {
   const settings = useSettingsStore()
-  const [need, setNeed] = useState<ExplanationNeed>('not_understood')
   const [tone, setTone] = useState<ExplanationTone>('rigorous')
   const [darkMode, setDarkMode] = useState(false)
   const [saved, setSaved] = useState(false)
 
   useEffect(() => {
     if (!settings.loaded) return
-    setNeed(settings.defaultExplanationNeed)
     setTone(settings.explanationTone)
     setDarkMode(settings.darkMode)
-  }, [settings.darkMode, settings.defaultExplanationNeed, settings.explanationTone, settings.loaded])
+  }, [settings.darkMode, settings.explanationTone, settings.loaded])
 
   const handleSave = async () => {
-    await settings.update({ defaultExplanationNeed: need, explanationTone: tone, darkMode })
+    await settings.update({ explanationTone: tone, darkMode })
     setSaved(true)
     window.setTimeout(() => setSaved(false), 2000)
   }
@@ -36,25 +28,6 @@ export default function Settings() {
         <p className="mb-6 text-sm text-gray-500">调整阅读与讲解偏好</p>
 
         <div className="space-y-6">
-          <section className="card p-5">
-            <h2 className="font-medium">默认讲解偏好</h2>
-            <p className="mt-1 text-xs text-gray-500">无法判断你的需求时，以此方式开始讲解。</p>
-            <div className="mt-4 flex flex-wrap gap-2" role="radiogroup" aria-label="默认讲解偏好">
-              {NEEDS.map((item) => (
-                <button
-                  key={item}
-                  type="button"
-                  role="radio"
-                  aria-checked={item === need}
-                  onClick={() => setNeed(item)}
-                  className={`border px-3 py-2 text-sm font-medium ${item === need ? 'border-black bg-black text-white' : 'border-gray-300 bg-white text-gray-800'}`}
-                >
-                  {EXPLANATION_NEED_LABELS[item]}
-                </button>
-              ))}
-            </div>
-          </section>
-
           <section className="card p-5">
             <h2 className="font-medium">讲解语气</h2>
             <div className="mt-4 grid grid-cols-2 border border-gray-300 p-1" role="radiogroup" aria-label="讲解语气">

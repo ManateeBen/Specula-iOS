@@ -214,7 +214,6 @@ export interface AppSettings {
   baseURL: string
   model: string
   defaultTeachingMode: TeachingMode
-  defaultExplanationNeed: ExplanationNeed
   explanationTone: ExplanationTone
   darkMode: boolean
   // Vision model (for explaining images) — DeepSeek's API is text-only, so a

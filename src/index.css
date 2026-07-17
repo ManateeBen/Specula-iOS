@@ -1717,8 +1717,6 @@
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
-.ai-explain-guess { color: var(--records-faint); font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.08em; margin: 12px 22px 0; }
-.ai-explain-guess b { color: var(--records-cobalt); font-weight: 500; }
 .ai-explain-needs { display: flex; flex: 0 0 auto; gap: 8px; overflow-x: auto; padding: 10px 22px 14px; scrollbar-width: none; }
 .ai-explain-needs::-webkit-scrollbar { display: none; }
 .ai-explain-needs button {
@@ -1734,6 +1732,9 @@
 .ai-explain-needs button.is-current { background: var(--records-ink); color: var(--records-paper); }
 .ai-explain-needs button small { color: #607cff; font-size: 10px; }
 .ai-explain-content { border-top: 1px solid var(--records-rule); min-height: 210px; overflow-y: auto; padding: 6px 22px calc(26px + env(safe-area-inset-bottom)); }
+.ai-explain-empty { align-items: center; color: var(--records-muted); display: flex; flex-direction: column; justify-content: center; min-height: 180px; text-align: center; }
+.ai-explain-empty b { color: var(--records-ink); font-size: 15px; }
+.ai-explain-empty span { font-family: 'IBM Plex Mono', monospace; font-size: 10px; margin-top: 8px; }
 .ai-explain-loading { align-items: center; color: var(--records-muted); display: flex; font-size: 13px; gap: 8px; justify-content: center; min-height: 180px; }
 .ai-explain-section > span { color: var(--records-cobalt); display: block; font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.12em; margin: 18px 0 6px; text-transform: uppercase; }
 .ai-explain-section > p { font-family: 'Noto Serif SC', 'Songti SC', serif; font-size: 15.5px; line-height: 2; margin: 0; white-space: pre-line; }
