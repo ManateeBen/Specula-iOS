@@ -79,6 +79,11 @@ final class AppUITests: XCTestCase {
         normalizeReaderToFirstChapter()
         waitForAny("Welcome to Specula", timeout: 20)
 
+        drag(from: CGVector(dx: 0.62, dy: 0.52), to: CGVector(dx: 0.52, dy: 0.52))
+        XCTAssertTrue(existsAny(["Welcome to Specula"]), "A short horizontal drag should spring back")
+        XCTAssertFalse(existsAny(["How AI Reading Helps"]), "A short horizontal drag must not change chapters")
+        attachScreenshot(named: "epub-short-drag-springs-back")
+
         swipeReaderLeft()
         waitForAny("How AI Reading Helps", timeout: 10)
         attachScreenshot(named: "epub-swipe-next")

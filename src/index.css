@@ -660,14 +660,49 @@
   }
 }
 .pdf-text-layer {
+  forced-color-adjust: none;
+  inset: 0;
+  line-height: 1;
+  overflow: hidden;
+  position: absolute;
+  text-align: initial;
+  text-size-adjust: none;
+  touch-action: pan-y pinch-zoom;
+  transform-origin: 0 0;
+  -webkit-user-select: text;
+  -webkit-text-size-adjust: none;
+  user-select: text;
+}
+.pdf-text-layer :is(span, br) {
+  color: transparent;
+  cursor: text;
+  position: absolute;
+  transform-origin: 0 0;
+  white-space: pre;
   -webkit-user-select: text;
   user-select: text;
 }
-.pdf-text-layer span {
-  -webkit-user-select: text;
-  cursor: text;
-  line-height: 1;
-  user-select: text;
+.pdf-text-layer span.markedContent {
+  height: 0;
+  top: 0;
+}
+.pdf-text-layer .endOfContent {
+  cursor: default;
+  display: block;
+  inset: 100% 0 0;
+  position: absolute;
+  -webkit-user-select: none;
+  user-select: none;
+  z-index: -1;
+}
+.pdf-text-layer .endOfContent.active {
+  top: 0;
+}
+.pdf-text-layer ::selection {
+  background: rgba(39, 67, 214, 0.24);
+}
+.pdf-text-layer br::selection {
+  background: transparent;
 }
 .pdf-image-explain-button {
   align-items: center;
@@ -1504,6 +1539,7 @@
 .records-reader .epub-container,
 .records-epub-reader { background: var(--records-paper); }
 .records-epub-reader .reader-page-bar { display: none; }
+.epub-swipe-neighbor { display: none; }
 
 .reader-track-intro {
   margin: 0 auto;
@@ -1653,6 +1689,39 @@
 .reader-player__track svg { height: 13px !important; width: 13px !important; }
 
 @media (max-width: 767px) {
+  .records-epub-reader > .epub-container {
+    background: var(--records-paper);
+    position: relative;
+    transform: translate3d(0, 0, 0);
+    will-change: transform;
+    z-index: 2;
+  }
+  .records-epub-reader[data-swipe-direction] > .epub-container {
+    box-shadow: 0 0 26px rgba(20, 20, 20, 0.16);
+  }
+  .epub-swipe-neighbor {
+    background: var(--records-paper);
+    display: block;
+    inset: 0;
+    opacity: 0;
+    overflow: hidden;
+    pointer-events: none;
+    position: absolute;
+    transition: opacity 100ms linear;
+    will-change: transform;
+    z-index: 1;
+  }
+  .epub-swipe-neighbor--prev { transform: translate3d(-100%, 0, 0); }
+  .epub-swipe-neighbor--next { transform: translate3d(100%, 0, 0); }
+  .epub-swipe-neighbor .records-epub-content {
+    max-height: calc(100% - 150px);
+    overflow: hidden;
+  }
+  .records-epub-reader[data-swipe-direction='prev'] .epub-swipe-neighbor--prev,
+  .records-epub-reader[data-swipe-direction='next'] .epub-swipe-neighbor--next {
+    opacity: 1;
+  }
+  .epub-content--custom-select { touch-action: pan-y; }
   .records-masthead { padding-top: 27px; }
   .records-library__main { padding: 0 18px; }
   .record-crate { grid-template-columns: repeat(2, minmax(0, 1fr)); }

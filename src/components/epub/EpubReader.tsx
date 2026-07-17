@@ -326,6 +326,12 @@ export default function EpubReader({
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
+  const swipeRootRef = useRef<HTMLDivElement>(null)
+  const prevPreviewRef = useRef<HTMLDivElement>(null)
+  const nextPreviewRef = useRef<HTMLDivElement>(null)
+  const prevPreviewContentRef = useRef<HTMLDivElement>(null)
+  const nextPreviewContentRef = useRef<HTMLDivElement>(null)
+  const swipeAnimationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const prevChapterIdRef = useRef<string | null>(null)
   const [html, setHtml] = useState('')
   const [loading, setLoading] = useState(true)
@@ -383,6 +389,8 @@ export default function EpubReader({
     startedAt: 0,
     tracking: false,
     startedInCodeBlock: false,
+    axis: 'pending' as 'pending' | 'horizontal' | 'vertical',
+    dragging: false,
   })
   // Debounce timer for persisting the intra-chapter scroll position.
   const scrollSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -573,8 +581,13 @@ export default function EpubReader({
       if (sel.longPressTimer) clearTimeout(sel.longPressTimer)
       if (sel.rafId != null) cancelAnimationFrame(sel.rafId)
       if (sel.autoScrollRaf != null) cancelAnimationFrame(sel.autoScrollRaf)
+      if (swipeAnimationTimerRef.current) clearTimeout(swipeAnimationTimerRef.current)
       if (scrollRef.current && sel.previousOverflowY != null) {
         scrollRef.current.style.overflowY = sel.previousOverflowY
+      }
+      if (scrollRef.current) {
+        scrollRef.current.style.transition = ''
+        scrollRef.current.style.transform = ''
       }
       contentRef.current?.classList.remove('epub-selecting')
       const layer = selectionOverlayRef.current
@@ -587,8 +600,35 @@ export default function EpubReader({
   }, [])
 
   const idx = chapters.findIndex((c) => c.id === currentChapterId)
+  const prevChapter = idx > 0 ? chapters[idx - 1] : null
+  const nextChapter = idx >= 0 && idx < chapters.length - 1 ? chapters[idx + 1] : null
   const totalSeconds = runtimeMinutes * 60
   const elapsedSeconds = totalSeconds * scrollFraction
+
+  useEffect(() => {
+    let cancelled = false
+    const loadPreview = async (chapter: Chapter | null, target: HTMLDivElement | null) => {
+      if (!target) return
+      if (!chapter) {
+        target.replaceChildren()
+        return
+      }
+      const previewHtml = await window.specula.epub.getChapterHtml(bookId, chapter.startRef)
+      if (cancelled) return
+      target.innerHTML = previewHtml || ''
+      sanitizeRenderedChapter(target)
+      target.querySelectorAll('[id]').forEach((element) => element.removeAttribute('id'))
+    }
+
+    void Promise.all([
+      loadPreview(prevChapter, prevPreviewContentRef.current),
+      loadPreview(nextChapter, nextPreviewContentRef.current),
+    ])
+    return () => {
+      cancelled = true
+    }
+  }, [bookId, prevChapter?.id, prevChapter?.startRef, nextChapter?.id, nextChapter?.startRef])
+
   const clearSelectionState = () => {
     window.getSelection()?.removeAllRanges()
     if (contentRef.current) stripSelectionPreview(contentRef.current)
@@ -634,25 +674,118 @@ export default function EpubReader({
     if (idx >= 0 && idx < chapters.length - 1) onChapterChange(chapters[idx + 1].id)
   }
 
-  const finishSwipeIfNeeded = () => {
+  const resetSwipeSurface = (animated: boolean) => {
+    const surface = scrollRef.current
+    const root = swipeRootRef.current
+    const transition = animated
+        ? 'transform 280ms cubic-bezier(0.22, 0.8, 0.24, 1)'
+        : 'none'
+    if (surface) {
+      surface.style.transition = transition
+      surface.style.transform = 'translate3d(0, 0, 0)'
+    }
+    if (prevPreviewRef.current) {
+      prevPreviewRef.current.style.transition = transition
+      prevPreviewRef.current.style.transform = 'translate3d(-100%, 0, 0)'
+    }
+    if (nextPreviewRef.current) {
+      nextPreviewRef.current.style.transition = transition
+      nextPreviewRef.current.style.transform = 'translate3d(100%, 0, 0)'
+    }
+    if (root) delete root.dataset.swipeDirection
+  }
+
+  const updateSwipeDrag = (e: React.TouchEvent, clientX: number, clientY: number) => {
+    const swipe = swipeRef.current
+    if (!swipe.tracking || swipe.startedInCodeBlock || selInfoRef.current) return false
+
+    const dx = clientX - swipe.startX
+    const dy = clientY - swipe.startY
+    const absX = Math.abs(dx)
+    const absY = Math.abs(dy)
+    if (swipe.axis === 'pending' && Math.max(absX, absY) >= 10) {
+      swipe.axis = absX > absY * 1.25 ? 'horizontal' : 'vertical'
+      if (swipe.axis === 'horizontal') cancelCustomLongPress()
+    }
+    if (swipe.axis !== 'horizontal') return false
+
+    e.preventDefault()
+    swipe.dragging = true
+    const canMove = dx < 0 ? idx < chapters.length - 1 : idx > 0
+    const resistedDx = canMove ? dx * 0.94 : dx * 0.18
+    const width = Math.max(scrollRef.current?.clientWidth || window.innerWidth, 320)
+    const surface = scrollRef.current
+    if (surface) {
+      surface.style.transition = 'none'
+      surface.style.transform = `translate3d(${resistedDx}px, 0, 0)`
+    }
+    if (prevPreviewRef.current) {
+      prevPreviewRef.current.style.transition = 'none'
+      prevPreviewRef.current.style.transform = `translate3d(${resistedDx - width}px, 0, 0)`
+    }
+    if (nextPreviewRef.current) {
+      nextPreviewRef.current.style.transition = 'none'
+      nextPreviewRef.current.style.transform = `translate3d(${resistedDx + width}px, 0, 0)`
+    }
+    if (swipeRootRef.current) {
+      swipeRootRef.current.dataset.swipeDirection = dx < 0 ? 'next' : 'prev'
+    }
+    return true
+  }
+
+  const finishSwipeIfNeeded = (cancelled = false) => {
     const swipe = swipeRef.current
     swipe.tracking = false
-    if (!isMobile || swipe.startedInCodeBlock || customSelectionRef.current.selecting || selInfoRef.current) return false
+    if (!isMobile || swipe.startedInCodeBlock || customSelectionRef.current.selecting || selInfoRef.current) {
+      resetSwipeSurface(true)
+      return false
+    }
 
     const dx = swipe.lastX - swipe.startX
     const dy = swipe.lastY - swipe.startY
     const absX = Math.abs(dx)
     const absY = Math.abs(dy)
-    const elapsed = Date.now() - swipe.startedAt
-    const isHorizontalSwipe = absX >= 72 && absX > absY * 1.35 && absY <= 90 && elapsed <= 900
-    if (!isHorizontalSwipe) return false
+    const elapsed = Math.max(Date.now() - swipe.startedAt, 1)
+    const velocity = absX / elapsed
+    const width = Math.max(scrollRef.current?.clientWidth || window.innerWidth, 320)
+    const hasNeighbor = dx < 0 ? idx < chapters.length - 1 : idx > 0
+    const crossedDistance = absX >= Math.max(104, width * 0.28)
+    const deliberateFlick = absX >= 64 && velocity >= 0.62
+    const shouldTurn =
+      !cancelled &&
+      swipe.axis === 'horizontal' &&
+      swipe.dragging &&
+      hasNeighbor &&
+      absX > absY * 1.25 &&
+      (crossedDistance || deliberateFlick)
+    swipe.dragging = false
+    swipe.axis = 'pending'
+    if (!shouldTurn) {
+      resetSwipeSurface(true)
+      return absX > 10 && absX > absY
+    }
 
     customSelectionRef.current.suppressClickUntil = Date.now() + 450
-    if (dx < 0) {
-      goNext()
-    } else {
-      goPrev()
+    const surface = scrollRef.current
+    const transition = 'transform 360ms cubic-bezier(0.2, 0.72, 0.2, 1)'
+    if (surface) {
+      surface.style.transition = transition
+      surface.style.transform = `translate3d(${dx < 0 ? -width : width}px, 0, 0)`
     }
+    if (prevPreviewRef.current) {
+      prevPreviewRef.current.style.transition = transition
+      prevPreviewRef.current.style.transform = `translate3d(${dx < 0 ? -width * 2 : 0}px, 0, 0)`
+    }
+    if (nextPreviewRef.current) {
+      nextPreviewRef.current.style.transition = transition
+      nextPreviewRef.current.style.transform = `translate3d(${dx < 0 ? 0 : width * 2}px, 0, 0)`
+    }
+    if (swipeAnimationTimerRef.current) clearTimeout(swipeAnimationTimerRef.current)
+    swipeAnimationTimerRef.current = setTimeout(() => {
+      resetSwipeSurface(false)
+      if (dx < 0) goNext()
+      else goPrev()
+    }, 330)
     return true
   }
 
@@ -926,6 +1059,8 @@ export default function EpubReader({
       startedAt: Date.now(),
       tracking: true,
       startedInCodeBlock: Boolean(target.closest('pre')),
+      axis: 'pending',
+      dragging: false,
     }
     customSelectionRef.current.startX = touch.clientX
     customSelectionRef.current.startY = touch.clientY
@@ -966,6 +1101,7 @@ export default function EpubReader({
     }
     const sel = customSelectionRef.current
     if (!sel.selecting) {
+      if (updateSwipeDrag(e, touch.clientX, touch.clientY)) return
       const dx = touch.clientX - sel.startX
       const dy = touch.clientY - sel.startY
       if (Math.hypot(dx, dy) > 8) cancelCustomLongPress()
@@ -1005,7 +1141,7 @@ export default function EpubReader({
       sel.anchorRange = null
       if (range) finalizeMobileSelection(range)
       else clearSelectionState()
-    } else if (finishSwipeIfNeeded()) {
+    } else if (finishSwipeIfNeeded(e.type === 'touchcancel')) {
       e.preventDefault()
     } else {
       sel.selecting = false
@@ -1142,7 +1278,8 @@ export default function EpubReader({
 
   return (
     <div
-      className="records-epub-reader relative flex h-full flex-col transition-[padding] duration-200"
+      ref={swipeRootRef}
+      className="records-epub-reader relative flex h-full flex-col overflow-hidden transition-[padding] duration-200"
       style={
         isMobile && !chromeVisible
           ? { paddingTop: 'calc(max(env(safe-area-inset-top), 44px) + 0.5rem)' }
@@ -1150,6 +1287,36 @@ export default function EpubReader({
       }
       onClickCapture={handleRootClickCapture}
     >
+      <div ref={prevPreviewRef} className="epub-swipe-neighbor epub-swipe-neighbor--prev" aria-hidden>
+        {prevChapter && (
+          <>
+            <section className="reader-track-intro">
+              <div className="reader-track-intro__meta">
+                <strong>TRACK {String(idx).padStart(2, '0')}</strong>
+                <span>PREVIOUS SIDE</span>
+              </div>
+              <h1>{prevChapter.title}</h1>
+              <p>{bookTitle}</p>
+            </section>
+            <div ref={prevPreviewContentRef} className="epub-content records-epub-content mx-auto max-w-3xl px-8 py-8" />
+          </>
+        )}
+      </div>
+      <div ref={nextPreviewRef} className="epub-swipe-neighbor epub-swipe-neighbor--next" aria-hidden>
+        {nextChapter && (
+          <>
+            <section className="reader-track-intro">
+              <div className="reader-track-intro__meta">
+                <strong>TRACK {String(idx + 2).padStart(2, '0')}</strong>
+                <span>NEXT SIDE</span>
+              </div>
+              <h1>{nextChapter.title}</h1>
+              <p>{bookTitle}</p>
+            </section>
+            <div ref={nextPreviewContentRef} className="epub-content records-epub-content mx-auto max-w-3xl px-8 py-8" />
+          </>
+        )}
+      </div>
       <div
         ref={scrollRef}
         onScroll={handleScroll}

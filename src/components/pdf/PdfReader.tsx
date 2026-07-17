@@ -18,6 +18,7 @@ interface Props {
 
 type PdfDocument = Awaited<ReturnType<typeof pdfjs.getDocument>['promise']>
 type RenderTask = ReturnType<Awaited<ReturnType<PdfDocument['getPage']>>['render']>
+type TextLayerRenderTask = ReturnType<typeof pdfjs.renderTextLayer>
 
 function parsePage(value?: string): number {
   const page = parseInt(value || '1', 10)
@@ -75,6 +76,8 @@ export default function PdfReader({
   const containerRef = useRef<HTMLDivElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const textLayerRef = useRef<HTMLDivElement | null>(null)
+  const selectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const lastSelectionKeyRef = useRef('')
 
   const totalPages = doc?.numPages || 0
   const currentChapter = useMemo(() => chapterForPage(chapters, pageNum), [chapters, pageNum])
@@ -145,6 +148,7 @@ export default function PdfReader({
 
     let cancelled = false
     let renderTask: RenderTask | null = null
+    let textLayerTask: TextLayerRenderTask | null = null
 
     const render = async () => {
       setRendering(true)
@@ -178,6 +182,7 @@ export default function PdfReader({
 
         textLayer.style.width = `${viewport.width}px`
         textLayer.style.height = `${viewport.height}px`
+        textLayer.style.setProperty('--scale-factor', String(viewport.scale))
         textLayer.replaceChildren()
 
         const context = canvas.getContext('2d')
@@ -193,25 +198,20 @@ export default function PdfReader({
         await renderTask.promise
         if (cancelled) return
 
-        const textContent = await page.getTextContent()
+        const textContent = await page.getTextContent({
+          includeMarkedContent: true,
+          disableNormalization: true,
+        })
         if (cancelled) return
 
-        for (const item of textContent.items) {
-          if (!('str' in item) || !item.str) continue
-          const transform = pdfjs.Util.transform(viewport.transform, item.transform)
-          const fontHeight = Math.hypot(transform[2], transform[3])
-          const span = document.createElement('span')
-          span.textContent = item.str
-          span.style.position = 'absolute'
-          span.style.left = `${transform[4]}px`
-          span.style.top = `${transform[5] - fontHeight}px`
-          span.style.fontSize = `${fontHeight}px`
-          span.style.fontFamily = 'sans-serif'
-          span.style.whiteSpace = 'pre'
-          span.style.color = 'transparent'
-          span.style.transformOrigin = '0 0'
-          textLayer.appendChild(span)
-        }
+        textLayerTask = pdfjs.renderTextLayer({
+          textContentSource: textContent,
+          container: textLayer,
+          viewport,
+          textDivs: [],
+          textContentItemsStr: [],
+        })
+        await textLayerTask.promise
       } catch (err) {
         if (!cancelled && !(err instanceof Error && err.name === 'RenderingCancelledException')) {
           setError(err instanceof Error ? err.message : 'PDF 渲染失败')
@@ -226,6 +226,7 @@ export default function PdfReader({
     return () => {
       cancelled = true
       renderTask?.cancel()
+      textLayerTask?.cancel()
     }
   }, [doc, pageNum, containerWidth, zoom])
 
@@ -268,16 +269,54 @@ export default function PdfReader({
     onJumpComplete?.()
   }, [jumpToChapterId, jumpToChapter, onJumpComplete])
 
-  const handleSelectionEnd = useCallback(() => {
+  const emitSelection = useCallback(() => {
     const sel = window.getSelection()
-    if (!sel || sel.isCollapsed) return
+    const textLayer = textLayerRef.current
+    if (!sel || sel.isCollapsed || !textLayer) return
+    const anchorInLayer = sel.anchorNode ? textLayer.contains(sel.anchorNode) : false
+    const focusInLayer = sel.focusNode ? textLayer.contains(sel.focusNode) : false
+    if (!anchorInLayer && !focusInLayer) return
     const text = sel.toString().trim()
     if (!text) return
     const range = sel.getRangeAt(0)
     const rect = range.getBoundingClientRect()
-    const context = textLayerRef.current?.textContent?.slice(0, 1000) || ''
+    const selectionKey = `${text}|${Math.round(rect.left)}|${Math.round(rect.top)}|${Math.round(rect.width)}|${Math.round(rect.height)}`
+    if (selectionKey === lastSelectionKeyRef.current) return
+    lastSelectionKeyRef.current = selectionKey
+    const context = textLayer.textContent?.slice(0, 1000) || ''
     onTextSelect(text, context, rect)
   }, [onTextSelect])
+
+  const scheduleSelection = useCallback((delay = 500) => {
+    if (selectionTimerRef.current) clearTimeout(selectionTimerRef.current)
+    selectionTimerRef.current = setTimeout(emitSelection, delay)
+  }, [emitSelection])
+
+  useEffect(() => {
+    const handleSelectionChange = () => {
+      const selection = window.getSelection()
+      const textLayer = textLayerRef.current
+      if (!selection || selection.isCollapsed || !textLayer) {
+        if (selectionTimerRef.current) clearTimeout(selectionTimerRef.current)
+        lastSelectionKeyRef.current = ''
+        return
+      }
+      const belongsToPage =
+        (selection.anchorNode && textLayer.contains(selection.anchorNode)) ||
+        (selection.focusNode && textLayer.contains(selection.focusNode))
+      if (belongsToPage) scheduleSelection(650)
+    }
+
+    document.addEventListener('selectionchange', handleSelectionChange)
+    return () => {
+      document.removeEventListener('selectionchange', handleSelectionChange)
+      if (selectionTimerRef.current) clearTimeout(selectionTimerRef.current)
+    }
+  }, [scheduleSelection])
+
+  useEffect(() => {
+    lastSelectionKeyRef.current = ''
+  }, [pageNum, zoom])
 
   const handleExplainCurrentPage = useCallback(() => {
     const canvas = canvasRef.current
@@ -311,8 +350,8 @@ export default function PdfReader({
       <div
         ref={containerRef}
         className="pdf-viewer-container h-full overflow-auto px-4 py-4"
-        onMouseUp={handleSelectionEnd}
-        onTouchEnd={handleSelectionEnd}
+        onMouseUp={() => scheduleSelection(120)}
+        onTouchEnd={() => scheduleSelection(650)}
       >
         <div className="mx-auto w-fit">
           <div className="relative bg-white shadow-sm">
