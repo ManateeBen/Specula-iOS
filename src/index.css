@@ -9,15 +9,21 @@
 @layer base {
   html {
     @apply h-full;
+    min-height: 100dvh;
+    background: #f4f1ea;
     -webkit-tap-highlight-color: transparent;
   }
   body {
-    @apply h-full bg-gray-50 text-gray-900 dark:bg-gray-950 dark:text-gray-100;
+    @apply h-full text-gray-900 dark:text-gray-100;
+    min-height: 100dvh;
+    background: #f4f1ea;
     -webkit-touch-callout: none;
     overscroll-behavior: none;
   }
   #root {
     @apply h-full;
+    min-height: 100dvh;
+    background: #f4f1ea;
   }
 }
 
@@ -1349,7 +1355,11 @@
 .records-tabs a.is-active::after { background: var(--records-cobalt); bottom: 7px; content: ''; height: 2px; left: 0; position: absolute; right: 0; }
 
 /* Reader as album liner notes. */
-.records-reader { isolation: isolate; }
+.records-reader {
+  background: var(--records-paper);
+  isolation: isolate;
+  min-height: 100dvh;
+}
 .records-toc-backdrop {
   background: rgba(20, 20, 20, 0.46);
   backdrop-filter: grayscale(0.35);

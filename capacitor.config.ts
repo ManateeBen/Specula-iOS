@@ -5,7 +5,9 @@ const config: CapacitorConfig = {
   appName: 'Specula',
   webDir: 'dist',
   ios: {
-    contentInset: 'automatic',
+    // The app handles the status bar and home-indicator safe areas in CSS.
+    // Automatic insets can leave an uncovered strip below the WebView.
+    contentInset: 'never',
     scrollEnabled: true,
   },
   server: {
