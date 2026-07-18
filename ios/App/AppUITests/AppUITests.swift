@@ -85,12 +85,19 @@ final class AppUITests: XCTestCase {
         attachScreenshot(named: "epub-short-drag-springs-back")
 
         swipeReaderLeft()
+        XCTAssertTrue(existsAny(["Welcome to Specula"]), "The first full swipe should turn a page inside the chapter")
+        XCTAssertFalse(existsAny(["How AI Reading Helps"]), "A page turn must not skip directly to the next chapter")
+        attachScreenshot(named: "epub-swipe-next-page")
+
+        for _ in 0..<12 where !existsAny(["How AI Reading Helps"]) {
+            swipeReaderLeft()
+        }
         waitForAny("How AI Reading Helps", timeout: 10)
-        attachScreenshot(named: "epub-swipe-next")
+        attachScreenshot(named: "epub-swipe-next-chapter-after-last-page")
 
         swipeReaderRight()
         waitForAny("Welcome to Specula", timeout: 10)
-        attachScreenshot(named: "epub-swipe-previous")
+        attachScreenshot(named: "epub-swipe-previous-chapter-last-page")
     }
 
     func testRecordStyleTableOfContents() throws {
