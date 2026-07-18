@@ -21,12 +21,25 @@ pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   import.meta.url
 ).toString()
 
-const SAMPLE_BOOKS_SEEDED_KEY = 'specula_sample_books_seeded_v1'
+const SAMPLE_BOOKS_SEEDED_KEY = 'specula_sample_books_seeded_v4'
+const DEPRECATED_SAMPLE_TITLES = [
+  'Specula Getting Started',
+  'Sketch of the Analytical Engine invented by Charles Babbage, Esq.',
+  'The calculus of logic',
+  'The Architecture of Open Source Applications, Volume II',
+] as const
 const SAMPLE_BOOKS = [
   {
-    key: 'specula-getting-started',
-    fileName: 'Specula_Getting_Started.epub',
-    assetPath: 'sample-books/Specula_Getting_Started.epub',
+    key: 'specula-from-probability-to-llm',
+    fileName: 'Specula_From_Probability_to_LLM.epub',
+    assetPath: 'sample-books/Specula_From_Probability_to_LLM.epub',
+    expectedTitle: '从概率到大模型：一册读懂生成式 AI',
+  },
+  {
+    key: 'brief-account-radioactivity',
+    fileName: 'A_Brief_Account_of_Radioactivity.epub',
+    assetPath: 'sample-books/A_Brief_Account_of_Radioactivity.epub',
+    expectedTitle: 'A Brief Account of Radio-activity',
   },
 ] as const
 
@@ -463,20 +476,18 @@ async function readBundledAsset(assetPath: string): Promise<Uint8Array> {
 
 async function importBookData(fileData: Uint8Array, fileName: string): Promise<Book> {
   const name = fileName.toLowerCase()
-  if (!name.endsWith('.epub') && !name.endsWith('.pdf')) {
-    throw new Error('仅支持导入 EPUB 或 PDF 文件')
+  if (!name.endsWith('.epub')) {
+    throw new Error('目前仅支持导入 EPUB 文件')
   }
 
-  const format: BookFormat = name.endsWith('.epub') ? 'epub' : 'pdf'
-  const ext = format === 'epub' ? '.epub' : '.pdf'
+  const format: BookFormat = 'epub'
+  const ext = '.epub'
 
   const bookId = uuidv4()
   const destPath = `${getBooksDir()}/${bookId}${ext}`
   await writeBinaryFile(destPath, fileData)
 
-  const parsed = format === 'epub'
-    ? await parseEpubMetadata(destPath, fileName)
-    : await parsePdfMetadata(destPath, fileName)
+  const parsed = await parseEpubMetadata(destPath, fileName)
   const meta = {
     ...parsed,
     pdfTextStatus: format === 'pdf' && 'pdfTextStatus' in parsed ? parsed.pdfTextStatus : null,
@@ -520,8 +531,13 @@ export async function seedSampleBooks(): Promise<void> {
   const seeded = await Preferences.get({ key: SAMPLE_BOOKS_SEEDED_KEY })
   if (seeded.value === '1') return
 
+  for (const title of DEPRECATED_SAMPLE_TITLES) {
+    const deprecated = queryOne<BookRow>('SELECT * FROM books WHERE title = ?', [title])
+    if (deprecated) await deleteBook(deprecated.id)
+  }
+
   for (const sample of SAMPLE_BOOKS) {
-    const existing = queryOne<BookRow>('SELECT * FROM books WHERE title = ?', ['Specula Getting Started'])
+    const existing = queryOne<BookRow>('SELECT * FROM books WHERE title = ?', [sample.expectedTitle])
     if (existing) continue
 
     const data = await readBundledAsset(sample.assetPath)

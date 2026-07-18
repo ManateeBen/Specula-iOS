@@ -107,7 +107,7 @@ export async function pickBookFile(): Promise<File | null> {
   return new Promise((resolve) => {
     const input = document.createElement('input')
     input.type = 'file'
-    input.accept = '.epub,.pdf,application/epub+zip,application/pdf'
+    input.accept = '.epub,application/epub+zip'
     input.style.display = 'none'
     document.body.appendChild(input)
     input.onchange = () => {

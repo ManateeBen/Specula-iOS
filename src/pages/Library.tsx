@@ -84,9 +84,6 @@ export default function Library() {
       const book = await window.specula.books.import()
       if (book) {
         await loadBooks()
-        if (book.format === 'pdf' && book.pdfTextStatus !== 'text') {
-          setNotice(book.pdfAiUnsupportedReason || '这本 PDF 暂不支持 AI 功能')
-        }
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : '导入书籍失败')
@@ -133,7 +130,7 @@ export default function Library() {
         </div>
         <button type="button" onClick={handleImport} disabled={importing} aria-label="import-book">
           <Plus aria-hidden />
-          {importing ? '导入中' : '导入'}
+          {importing ? '导入中' : '导入 EPUB'}
         </button>
       </header>
 
@@ -212,9 +209,9 @@ export default function Library() {
               )
             })}
 
-            <button type="button" onClick={handleImport} className="record-slot" aria-label="import-another-book">
+            <button type="button" onClick={handleImport} className="record-slot" aria-label="import-another-epub">
               <Plus aria-hidden />
-              <span>NEW RECORD</span>
+              <span>NEW EPUB</span>
             </button>
           </div>
         )}

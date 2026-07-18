@@ -122,6 +122,19 @@ final class AppUITests: XCTestCase {
         waitForAny("How AI Reading Helps", timeout: 10)
     }
 
+    func testBundledDemoBooks() throws {
+        waitForAny("Specula", timeout: 20)
+        waitForAny("book-从概率到大模型：一册读懂生成式 AI", timeout: 30)
+        waitForAny("book-A Brief Account of Radio-activity", timeout: 30)
+        let cataloging = app.staticTexts["CATALOGING RECORDS..."]
+        _ = cataloging.waitForNonExistence(timeout: 15)
+        attachScreenshot(named: "bundled-demo-books")
+
+        tapAny(["book-A Brief Account of Radio-activity"])
+        waitForAny("A Brief Account of Radio-activity", timeout: 20)
+        attachScreenshot(named: "bundled-radioactivity-reader")
+    }
+
     private func runAIExplanationFlow() {
         let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.28, dy: 0.40))
         let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.72, dy: 0.40))
@@ -323,11 +336,14 @@ final class AppUITests: XCTestCase {
     }
 
     private func tapSampleBookCard() {
-        // The starter EPUB card is seeded by the app and appears in a stable
-        // first-grid position on phone-sized simulators. Tapping the card body
-        // exercises the same path a user takes, while avoiding WebKit's nested
-        // accessibility nodes for links inside the card.
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.27, dy: 0.62)).tap()
+        let starter = app.descendants(matching: .any)
+            .matching(identifier: "book-从概率到大模型：一册读懂生成式 AI")
+            .firstMatch
+        if starter.waitForExistence(timeout: 10) {
+            starter.tap()
+            return
+        }
+        XCTFail("Missing bundled Specula demo EPUB")
     }
 
     private func attachScreenshot(named name: String) {
