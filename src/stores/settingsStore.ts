@@ -14,6 +14,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   defaultTeachingMode: 'direct' as TeachingMode,
   explanationTone: 'rigorous' as ExplanationTone,
   darkMode: false,
+  readingMode: 'scroll',
   visionApiKey: '',
   visionBaseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
   visionModel: 'qwen-vl-max',

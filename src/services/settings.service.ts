@@ -1,5 +1,5 @@
 import { Preferences } from '@capacitor/preferences'
-import type { AppSettings, ExplanationTone, TeachingMode } from '../types'
+import type { AppSettings, ExplanationTone, ReadingMode, TeachingMode } from '../types'
 
 const BUILTIN_TEXT_API_KEY = import.meta.env.VITE_SPECULA_TEXT_API_KEY || ''
 const BUILTIN_VISION_API_KEY = import.meta.env.VITE_SPECULA_VISION_API_KEY || ''
@@ -11,6 +11,7 @@ const KEYS = {
   defaultTeachingMode: 'defaultTeachingMode',
   explanationTone: 'explanationTone',
   darkMode: 'darkMode',
+  readingMode: 'readingMode',
   visionApiKey: 'visionApiKey',
   visionBaseURL: 'visionBaseURL',
   visionModel: 'visionModel',
@@ -23,6 +24,7 @@ const DEFAULTS: AppSettings = {
   defaultTeachingMode: 'direct',
   explanationTone: 'rigorous',
   darkMode: false,
+  readingMode: 'scroll',
   visionApiKey: '',
   visionBaseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
   visionModel: 'qwen-vl-max',
@@ -38,10 +40,11 @@ async function setPref(key: string, value: string): Promise<void> {
 }
 
 export async function getSettings(): Promise<AppSettings> {
-  const [defaultTeachingMode, explanationTone, darkMode] = await Promise.all([
+  const [defaultTeachingMode, explanationTone, darkMode, readingMode] = await Promise.all([
     getPref(KEYS.defaultTeachingMode, DEFAULTS.defaultTeachingMode),
     getPref(KEYS.explanationTone, DEFAULTS.explanationTone),
     getPref(KEYS.darkMode, String(DEFAULTS.darkMode)),
+    getPref(KEYS.readingMode, DEFAULTS.readingMode),
   ])
 
   return {
@@ -49,6 +52,7 @@ export async function getSettings(): Promise<AppSettings> {
     defaultTeachingMode: defaultTeachingMode as TeachingMode,
     explanationTone: explanationTone as ExplanationTone,
     darkMode: darkMode === 'true',
+    readingMode: (readingMode === 'paged' ? 'paged' : 'scroll') as ReadingMode,
   }
 }
 
@@ -62,6 +66,7 @@ export async function setSettings(partial: Partial<AppSettings>): Promise<AppSet
   }
   if (partial.explanationTone !== undefined) tasks.push(setPref(KEYS.explanationTone, partial.explanationTone))
   if (partial.darkMode !== undefined) tasks.push(setPref(KEYS.darkMode, String(partial.darkMode)))
+  if (partial.readingMode !== undefined) tasks.push(setPref(KEYS.readingMode, partial.readingMode))
   if (partial.visionApiKey !== undefined) tasks.push(setPref(KEYS.visionApiKey, partial.visionApiKey))
   if (partial.visionBaseURL !== undefined) tasks.push(setPref(KEYS.visionBaseURL, partial.visionBaseURL))
   if (partial.visionModel !== undefined) tasks.push(setPref(KEYS.visionModel, partial.visionModel))

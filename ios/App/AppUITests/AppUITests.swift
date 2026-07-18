@@ -23,6 +23,7 @@ final class AppUITests: XCTestCase {
     func testLibraryReaderAndSettingsNavigation() throws {
         waitForAny("Specula", timeout: 20)
         waitForAny("Specula Getting Started", timeout: 20)
+        setReadingMode("上下滑动")
         attachScreenshot(named: "01-home")
 
         tapSampleBookCard()
@@ -42,12 +43,16 @@ final class AppUITests: XCTestCase {
         runQuickBrowseGapLoop()
 
         swipeReaderLeft()
-        waitForAny("How AI Reading Helps", timeout: 10)
-        attachScreenshot(named: "08-swipe-next-chapter")
+        XCTAssertTrue(existsAny(["Welcome to Specula"]), "Vertical reading mode must ignore horizontal page gestures")
+        attachScreenshot(named: "08-scroll-mode-ignores-horizontal-swipe")
 
-        swipeReaderRight()
+        tapAny(["reader-toggle-toc", "目录"])
+        tapAny(["toc-track-2"])
+        waitForAny("How AI Reading Helps", timeout: 10)
+        attachScreenshot(named: "09-scroll-mode-toc-navigation")
+        tapAny(["reader-toggle-toc", "目录"])
+        tapAny(["toc-track-1"])
         waitForAny("Welcome to Specula", timeout: 10)
-        attachScreenshot(named: "09-swipe-prev-chapter")
 
         tapBackFromReader()
         waitForAny("library-page", timeout: 10)
@@ -55,6 +60,7 @@ final class AppUITests: XCTestCase {
 
         tapAny(["settings-tab", "设置"])
         waitForAny(["settings-page", "设置"], timeout: 10)
+        waitForAny(["上下滑动", "左右翻页"], timeout: 10)
         waitForAny(["讲解语气", "严谨", "轻松"], timeout: 10)
         XCTAssertFalse(app.staticTexts["默认讲解偏好"].exists)
         tapAny(["轻松"])
@@ -74,6 +80,7 @@ final class AppUITests: XCTestCase {
     func testEpubChapterSwipeNavigation() throws {
         waitForAny("Specula", timeout: 20)
         waitForAny("Specula Getting Started", timeout: 20)
+        setReadingMode("左右翻页")
         tapSampleBookCard()
         waitForAny("Specula Getting Started", timeout: 20)
         normalizeReaderToFirstChapter()
@@ -254,8 +261,18 @@ final class AppUITests: XCTestCase {
             return
         }
         if existsAny(["How AI Reading Helps", "A Short Practice Chapter"]) {
-            swipeReaderRight()
+            tapAny(["reader-toggle-toc", "目录"])
+            tapAny(["toc-track-1"])
         }
+    }
+
+    private func setReadingMode(_ label: String) {
+        tapAny(["settings-tab"])
+        waitForAny("settings-page", timeout: 10)
+        tapAny([label])
+        tapAfterScrolling("save-settings")
+        tapAny(["library-tab"])
+        waitForAny("library-page", timeout: 10)
     }
 
     private func swipeReaderLeft() {

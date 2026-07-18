@@ -15,6 +15,7 @@ import ChapterToc from '../components/ChapterToc'
 import HighlightPopover from '../components/HighlightPopover'
 import HighlightCard from '../components/HighlightCard'
 import ImageExplanationPopover from '../components/ImageExplanationPopover'
+import { useSettingsStore } from '../stores/settingsStore'
 import type { Book, Chapter, ChapterDigest, Highlight, ImageSelectionInfo } from '../types'
 import {
   buildWeakPointIndexMap,
@@ -51,6 +52,7 @@ export default function Reader() {
   const deepLinkChapterId = searchParams.get('chapterId')
   const deepLinkHighlight = searchParams.get('highlight')
   const gapId = searchParams.get('gapId')
+  const readingMode = useSettingsStore((state) => state.readingMode)
 
   const [book, setBook] = useState<Book | null>(null)
   const [fileData, setFileData] = useState<Uint8Array | null>(null)
@@ -457,6 +459,7 @@ export default function Reader() {
           {book.format === 'epub' ? (
             <EpubReader
               bookId={book.id}
+              readingMode={readingMode}
               chapters={chapters}
               chapterId={activeChapterId}
               bookTitle={book.title}

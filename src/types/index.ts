@@ -230,6 +230,7 @@ export interface AppSettings {
   defaultTeachingMode: TeachingMode
   explanationTone: ExplanationTone
   darkMode: boolean
+  readingMode: ReadingMode
   // Vision model (for explaining images) — DeepSeek's API is text-only, so a
   // separate OpenAI-compatible vision endpoint is used (e.g. Aliyun DashScope / Qwen-VL).
   visionApiKey: string
@@ -287,6 +288,8 @@ export interface AnalyzeWeakPointsRequest {
   results: { questionId: string; correct: boolean; feedback: string }[]
   teachingMode: TeachingMode
 }
+
+export type ReadingMode = 'scroll' | 'paged'
 
 export interface GenerateDigestRequest {
   chapterId: string

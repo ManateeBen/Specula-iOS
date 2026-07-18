@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useMemo } from 'react'
 import { List, SkipBack, SkipForward, Sparkles } from 'lucide-react'
-import type { Chapter, Highlight, ImageSelectionInfo } from '../../types'
+import type { Chapter, Highlight, ImageSelectionInfo, ReadingMode } from '../../types'
 import { buildWeakPointIndexMap, getWeakPointColorSlot } from '../../utils/weakPointStyle'
 
 type HighlightColor = 'yellow' | 'pink' | 'purple' | 'blue' | 'green'
@@ -268,6 +268,7 @@ function markRange(
 
 interface Props {
   bookId: string
+  readingMode?: ReadingMode
   chapters: Chapter[]
   chapterId: string | null
   bookTitle?: string
@@ -302,6 +303,7 @@ function formatPlaybackTime(seconds: number): string {
 // highlight feature.
 export default function EpubReader({
   bookId,
+  readingMode = 'scroll',
   chapters,
   chapterId: currentChapterId,
   bookTitle,
@@ -341,6 +343,7 @@ export default function EpubReader({
     return Number.isFinite(initial) ? Math.min(1, Math.max(0, initial)) : 0
   })
   const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768)
+  const pagedMode = isMobile && readingMode === 'paged'
   const [viewportVersion, setViewportVersion] = useState(0)
   const [pageIndex, setPageIndex] = useState(0)
   const [pageCount, setPageCount] = useState(1)
@@ -458,7 +461,7 @@ export default function EpubReader({
       // same fraction to select a laid-out page in the pagination effect below.
       requestAnimationFrame(() => {
         const el = scrollRef.current
-        if (!el || isMobile) return
+        if (!el || pagedMode) return
         const max = el.scrollHeight - el.clientHeight
         el.scrollTop = restore != null && max > 0 ? max * restore : 0
         setScrollFraction(restore != null ? Math.min(1, Math.max(0, restore)) : 0)
@@ -469,7 +472,7 @@ export default function EpubReader({
       cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bookId, currentChapterId, isMobile])
+  }, [bookId, currentChapterId])
 
   // Load chapter HTML into the content container (sole writer — no dangerouslySetInnerHTML).
   useEffect(() => {
@@ -525,7 +528,7 @@ export default function EpubReader({
     requestAnimationFrame(() => {
       const restore = pendingRestoreRef.current
       pendingRestoreRef.current = null
-      if (isMobile) {
+      if (pagedMode) {
         const track = pageTrackRef.current
         const content = contentRef.current
         if (!track || !content) return
@@ -536,7 +539,7 @@ export default function EpubReader({
         const count = bodyPageCount + 1
         const currentFraction = pageCountRef.current > 1
           ? pageIndexRef.current / (pageCountRef.current - 1)
-          : 0
+          : scrollFraction
         const targetFraction = restore == null ? currentFraction : Math.min(1, Math.max(0, restore))
         const targetPage = Math.min(count - 1, Math.max(0, Math.round(targetFraction * (count - 1))))
         pageCountRef.current = count
@@ -559,10 +562,27 @@ export default function EpubReader({
         }
         return
       }
+      const track = pageTrackRef.current
+      const content = contentRef.current
+      if (track) {
+        track.style.width = ''
+        track.style.transition = ''
+        track.style.transform = ''
+      }
+      if (content) {
+        content.style.removeProperty('--epub-page-width')
+        content.style.removeProperty('--epub-page-content-width')
+      }
+      pageCountRef.current = 1
+      pageIndexRef.current = 0
+      setPageCount(1)
+      setPageIndex(0)
+      const targetFraction = restore == null ? scrollFraction : Math.min(1, Math.max(0, restore))
       const max = container.scrollHeight - container.clientHeight
-      if (restore != null && max > 0) container.scrollTop = max * restore
+      container.scrollTop = max > 0 ? max * targetFraction : 0
+      setScrollFraction(targetFraction)
     })
-  }, [html, chapterHighlights, isMobile, loading, viewportVersion])
+  }, [html, chapterHighlights, pagedMode, loading, viewportVersion])
 
   // Deep link: scroll to (and briefly flash) the excerpt once the chapter renders.
   useEffect(() => {
@@ -595,7 +615,7 @@ export default function EpubReader({
   const handleScroll = () => {
     const el = scrollRef.current
     if (!el || loading) return
-    if (isMobile) return
+    if (pagedMode) return
     if (customSelectionRef.current.selecting) {
       const locked = customSelectionRef.current.lockedScrollTop
       if (locked != null && el.scrollTop !== locked) el.scrollTop = locked
@@ -741,7 +761,7 @@ export default function EpubReader({
     const surface = pageTrackRef.current
     const root = swipeRootRef.current
     const width = Math.max(scrollRef.current?.clientWidth || window.innerWidth, 320)
-    const baseX = isMobile ? -pageIndexRef.current * width : 0
+    const baseX = pagedMode ? -pageIndexRef.current * width : 0
     const transition = animated
         ? 'transform 280ms cubic-bezier(0.22, 0.8, 0.24, 1)'
         : 'none'
@@ -765,7 +785,7 @@ export default function EpubReader({
 
   const updateSwipeDrag = (e: React.TouchEvent, clientX: number, clientY: number) => {
     const swipe = swipeRef.current
-    if (!swipe.tracking || swipe.startedInCodeBlock || selInfoRef.current) return false
+    if (!pagedMode || !swipe.tracking || swipe.startedInCodeBlock || selInfoRef.current) return false
 
     const dx = clientX - swipe.startX
     const dy = clientY - swipe.startY
@@ -816,7 +836,7 @@ export default function EpubReader({
   const finishSwipeIfNeeded = (cancelled = false) => {
     const swipe = swipeRef.current
     swipe.tracking = false
-    if (!isMobile || swipe.startedInCodeBlock || customSelectionRef.current.selecting || selInfoRef.current) {
+    if (!pagedMode || swipe.startedInCodeBlock || customSelectionRef.current.selecting || selInfoRef.current) {
       resetSwipeSurface(true)
       return false
     }
@@ -1425,8 +1445,8 @@ export default function EpubReader({
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        className={`epub-container flex-1 ${isMobile ? 'epub-container--paged overflow-hidden' : 'overflow-y-auto'}`}
-        aria-label={isMobile ? `epub-page-${pageIndex + 1}-of-${pageCount}` : undefined}
+        className={`epub-container flex-1 ${pagedMode ? 'epub-container--paged overflow-hidden' : 'overflow-y-auto'}`}
+        aria-label={pagedMode ? `epub-page-${pageIndex + 1}-of-${pageCount}` : 'epub-scroll-reader'}
         data-page-index={pageIndex + 1}
         data-page-count={pageCount}
         onTouchStart={handleCustomSelectionTouchStart}
@@ -1434,7 +1454,7 @@ export default function EpubReader({
         onTouchEnd={handleCustomSelectionTouchEnd}
         onTouchCancel={handleCustomSelectionTouchEnd}
       >
-        <div ref={pageTrackRef} className={isMobile ? 'epub-page-track' : undefined}>
+        <div ref={pageTrackRef} className={pagedMode ? 'epub-page-track' : undefined}>
           {loading ? (
           <div className="p-10 text-center text-sm text-gray-500">加载章节中...</div>
         ) : (
