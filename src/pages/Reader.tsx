@@ -17,8 +17,9 @@ import HighlightPopover from '../components/HighlightPopover'
 import HighlightCard from '../components/HighlightCard'
 import ImageExplanationPopover from '../components/ImageExplanationPopover'
 import CodeExplanationExplorer from '../components/CodeExplanationExplorer'
+import FormulaExplanationExplorer from '../components/FormulaExplanationExplorer'
 import { useSettingsStore } from '../stores/settingsStore'
-import type { Book, Chapter, ChapterDigest, CodeSelectionInfo, Highlight, ImageSelectionInfo } from '../types'
+import type { Book, Chapter, ChapterDigest, CodeSelectionInfo, FormulaSelectionInfo, Highlight, ImageSelectionInfo } from '../types'
 import {
   buildWeakPointIndexMap,
   getWeakPointIndex,
@@ -76,6 +77,7 @@ export default function Reader() {
   } | null>(null)
   const [imageSelection, setImageSelection] = useState<ImageSelectionInfo | null>(null)
   const [codeSelection, setCodeSelection] = useState<CodeSelectionInfo | null>(null)
+  const [formulaSelection, setFormulaSelection] = useState<FormulaSelectionInfo | null>(null)
   const [activeHighlight, setActiveHighlight] = useState<Highlight | null>(null)
   const [currentChapterId, setCurrentChapterId] = useState<string | null>(null)
   const [initialPosition, setInitialPosition] = useState<string>('')
@@ -278,6 +280,7 @@ export default function Reader() {
     }
     setImageSelection(null)
     setCodeSelection(null)
+    setFormulaSelection(null)
     setActiveHighlight(null)
     setSelection({ text, context, rect, action: 'explain' })
   }, [book])
@@ -289,6 +292,7 @@ export default function Reader() {
     }
     setImageSelection(null)
     setCodeSelection(null)
+    setFormulaSelection(null)
     setActiveHighlight(null)
     setSelection({ text, context, rect, action: 'explain-highlight' })
   }, [book])
@@ -296,6 +300,7 @@ export default function Reader() {
   const handleImageSelect = useCallback((info: ImageSelectionInfo) => {
     setSelection(null)
     setCodeSelection(null)
+    setFormulaSelection(null)
     setActiveHighlight(null)
     setImageSelection(info)
   }, [])
@@ -303,8 +308,17 @@ export default function Reader() {
   const handleCodeSelect = useCallback((info: CodeSelectionInfo) => {
     setSelection(null)
     setImageSelection(null)
+    setFormulaSelection(null)
     setActiveHighlight(null)
     setCodeSelection(info)
+  }, [])
+
+  const handleFormulaSelect = useCallback((info: FormulaSelectionInfo) => {
+    setSelection(null)
+    setImageSelection(null)
+    setCodeSelection(null)
+    setActiveHighlight(null)
+    setFormulaSelection(info)
   }, [])
 
   const refreshHighlights = async () => {
@@ -548,6 +562,7 @@ export default function Reader() {
               onHighlightSelect={setActiveHighlight}
               onImageSelect={handleImageSelect}
               onCodeSelect={handleCodeSelect}
+              onFormulaSelect={handleFormulaSelect}
               onGapAnchorStateChange={handleGapAnchorStateChange}
               onUnlocatedChange={setUnlocatedIds}
               onToggleToc={() => setTocOpen((open) => !open)}
@@ -623,6 +638,17 @@ export default function Reader() {
               bookTitle={book.title}
               chapterTitle={currentChapter?.title}
               onClose={() => setCodeSelection(null)}
+            />
+          )}
+
+          {formulaSelection && bookId && (
+            <FormulaExplanationExplorer
+              selection={formulaSelection}
+              bookId={bookId}
+              chapterId={activeChapterId}
+              bookTitle={book.title}
+              chapterTitle={currentChapter?.title}
+              onClose={() => setFormulaSelection(null)}
             />
           )}
         </div>

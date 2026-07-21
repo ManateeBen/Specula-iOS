@@ -509,6 +509,24 @@ function findUniqueAnswerAnchor(evidenceText: string, chapterContent: string): s
   return characters.slice(0, Math.min(64, characters.length)).join('').trim()
 }
 
+function normalizeRecallText(value: string): string {
+  return value.toLowerCase().replace(/[\s\p{P}\p{S}]/gu, '')
+}
+
+function isHighValueMechanismQuestion(question: string, summary: string, expectedAnswer: string): boolean {
+  const compactQuestion = question.replace(/\s+/g, '')
+  if (/^(?:什么是|是哪个|哪个|有几个|几个|多少|谁是|何时|在哪里|用于指定.+的是什)/.test(compactQuestion)) return false
+  if (/(?:参数|方法|对象|字段|变量|数量)(?:是|叫|为)什么[？?]?$/.test(compactQuestion)) return false
+  if (!/(?:为什么|为何|如何|怎样|什么机制|什么代价|什么后果|如果.+会|凭什么|依赖什么|成立条件|为何不同|区别)/.test(compactQuestion)) return false
+
+  const normalizedSummary = normalizeRecallText(summary)
+  const normalizedAnswer = normalizeRecallText(expectedAnswer)
+  if (normalizedAnswer.length >= 4 && normalizedAnswer.length <= 40 && normalizedSummary.includes(normalizedAnswer)) return false
+  const answerNumbers = expectedAnswer.match(/\b\d+(?:\.\d+)?\b/g) || []
+  if (answerNumbers.length === 1 && /(?:几个|多少|数量)/.test(compactQuestion) && normalizedSummary.includes(answerNumbers[0])) return false
+  return true
+}
+
 function normalizeGroundedCards(
   raw: unknown,
   evidencePlans: DigestEvidencePlan[],
@@ -537,6 +555,7 @@ function normalizeGroundedCards(
     const looksCompound = /(?:以及|同时|并且|又).{0,20}(?:为什么|如何|什么影响|什么代价)/.test(question)
     if (!title || !summary || !question || summaryLength > 160 || questionLength > 120) continue
     if (questionMarks > 1 || looksCompound || !chapterContent.includes(evidence.evidenceText)) continue
+    if (!isHighValueMechanismQuestion(question, summary, evidence.expectedAnswer)) continue
     const answerAnchor = findUniqueAnswerAnchor(evidence.evidenceText, chapterContent)
     if (Array.from(answerAnchor).length < 15 || !chapterContent.includes(answerAnchor)) continue
     cards.push({
@@ -547,12 +566,10 @@ function normalizeGroundedCards(
       answerAnchor,
       evidenceText: evidence.evidenceText,
       expectedAnswer: evidence.expectedAnswer,
-      qualityVersion: 2,
+      qualityVersion: 3,
     })
   }
-  return cards.filter((card, index, all) =>
-    all.findIndex((item) => item.title === card.title || item.question === card.question) === index
-  )
+  return cards.filter((card, index, all) => all.findIndex((item) => item.question === card.question) === index)
 }
 
 interface DigestJudgeResult {
@@ -562,6 +579,9 @@ interface DigestJudgeResult {
   expected_answer_supported?: boolean
   atomic_question?: boolean
   summary_answerable?: boolean
+  recall_question?: boolean
+  answer_quoted_in_summary?: boolean
+  depth_score?: number
   reason?: string
 }
 
@@ -569,7 +589,7 @@ async function judgeGroundedCards(
   client: OpenAI,
   model: string,
   cards: GroundedGeneratedDigest[],
-): Promise<{ passed: GroundedGeneratedDigest[]; reasons: string[] }> {
+): Promise<{ passed: { card: GroundedGeneratedDigest; score: number }[]; reasons: string[] }> {
   const response = await client.chat.completions.create({
     model,
     messages: [
@@ -581,8 +601,11 @@ async function judgeGroundedCards(
 3. expected_answer_supported：expected_answer 的每个断言是否都由 evidence 支持。
 4. atomic_question：question 是否只问一个核心机制，而不是用“以及/同时/又”拼接多个任务。
 5. summary_answerable：仅凭 summary 是否已经能回答 question；能则为 true，卡片不合格。
-只有前四项全为 true 且 summary_answerable 为 false 才合格。只输出 JSON：
-{"results":[{"card_index":0,"evidence_complete":true,"question_grounded":true,"expected_answer_supported":true,"atomic_question":true,"summary_answerable":false,"reason":"判断理由"}]}`,
+6. recall_question：是否只是问“是什么/哪个/几个/多少”，答案为一个名词、数字或 summary 原词；是则一票否决。
+7. answer_quoted_in_summary：expected_answer 的关键答案是否已在 summary 中直接出现或仅需照抄；是则一票否决。
+8. depth_score：1-5 分。只有迫使读者解释原因、机制、权衡、边界或反事实的题才能得 4-5 分。
+只有前四项全为 true，三个否决项全为 false，且 depth_score >= 4 才合格。只输出 JSON：
+{"results":[{"card_index":0,"evidence_complete":true,"question_grounded":true,"expected_answer_supported":true,"atomic_question":true,"summary_answerable":false,"recall_question":false,"answer_quoted_in_summary":false,"depth_score":5,"reason":"判断理由"}]}`,
       },
       {
         role: 'user',
@@ -600,7 +623,7 @@ async function judgeGroundedCards(
   })
   const judged = parseJsonFromResponse<{ results?: DigestJudgeResult[] }>(response.choices[0]?.message?.content || '')
   if (!Array.isArray(judged.results)) return { passed: [], reasons: ['裁判未返回完整结果'] }
-  const passed: GroundedGeneratedDigest[] = []
+  const scored: { card: GroundedGeneratedDigest; score: number }[] = []
   const reasons: string[] = []
   cards.forEach((card, index) => {
     const verdict = judged.results?.find((result) => Number(result.card_index) === index)
@@ -609,32 +632,35 @@ async function judgeGroundedCards(
       && verdict.expected_answer_supported === true
       && verdict.atomic_question === true
       && verdict.summary_answerable === false
-    if (valid) passed.push(card)
+      && verdict.recall_question === false
+      && verdict.answer_quoted_in_summary === false
+      && Number(verdict.depth_score) >= 4
+    if (valid) scored.push({ card, score: Number(verdict?.depth_score) || 0 })
     else reasons.push(`${card.title}：${verdict?.reason || '证据覆盖校验未通过'}`)
   })
-  return { passed, reasons }
+  return { passed: scored.sort((left, right) => right.score - left.score), reasons }
 }
 
 export async function generateChapterDigests(req: GenerateDigestRequest): Promise<GroundedGeneratedDigest[]> {
   const client = await createClient()
   const model = await getModel()
   const sources = buildDigestSources(req.chapterContent)
-  if (sources.length < 3) throw new Error('本章缺少足够的完整证据段落')
+  if (sources.length < 1) throw new Error('本章缺少可用于追问的完整证据段落')
   const sourceMap = new Map(sources.map((source) => [source.id, source.text]))
   const sourceText = sources.map((source) => `[${source.id}] ${source.text}`).join('\n')
 
   const plan = await createChapterKnowledgePlan(client, model, req.chapterTitle, sourceText, sourceMap)
-  if (plan.length < 3) throw new Error('无法从本章建立至少 3 个有原文依据的核心知识点')
+  if (plan.length < 1) throw new Error('无法从本章建立有原文依据的核心知识点')
 
   const plannedSources = selectSourcesForPlan(plan, sources)
   const evidencePlans = await createEvidencePlans(client, model, req.chapterTitle, plan, plannedSources, sourceMap)
-  if (evidencePlans.length < 3) throw new Error('本章只有少量问题能由单一原文段落完整回答')
+  if (evidencePlans.length < 1) throw new Error('本章没有问题能由原文证据完整回答')
 
-  const accepted: GroundedGeneratedDigest[] = []
+  const accepted: { card: GroundedGeneratedDigest; score: number }[] = []
   let retryReason = ''
   for (let attempt = 0; attempt < 3 && accepted.length < evidencePlans.length; attempt += 1) {
     const remaining = evidencePlans.filter((evidence) =>
-      !accepted.some((card) => card.title === evidence.name)
+      !accepted.some(({ card }) => card.title === evidence.name)
     )
     const response = await client.chat.completions.create({
       model,
@@ -644,10 +670,15 @@ export async function generateChapterDigests(req: GenerateDigestRequest): Promis
           content: `你是阅读 App 的知识卡编辑。证据和标准答案已经锁定，只能从它们反推问题。
 要求：
 1. 每条 evidence 生成一张卡，evidence_index 必须保持不变。
-2. summary 用 2-4 句、120 字以内陈述结论和作用，但不能泄露 expected_answer 中的机制、原因、边界或代价。
+2. summary 用 2-4 句、120 字以内陈述“是什么、做什么”，但不能泄露 expected_answer 中的机制、原因、边界、参数选择理由或代价。
 3. question 必须能被 evidence 和 expected_answer 单独、完整回答，不得引入其中未出现的术语、变量、后果或外部知识。
 4. 每题只允许一个问号和一个核心追问。禁止“以及、同时、又、分别”等综合题写法；若答案包含多点，应缩小到最关键的一点。
-5. 不得生成“什么是”式复述题，不得引用上一张卡。
+5. 以下任一情况必须废弃重写：答案是 summary 中出现的词、数字或短语；问题以“是什么/哪个/几个/多少”开头；只看 summary 的人能答对。
+6. 合格问题只问“为什么这样设计、如何实现关键换算、如果不这样会怎样、两者为何不同、代价或成立条件是什么”。不得引用上一张卡。
+坏例：summary 说“startOffset 指定第一条消息位移”，question 问“指定它的参数是什么”。
+好例：question 问“逻辑位移怎样换算成磁盘物理位置，换算不精确时如何处理？”
+坏例：summary 说“append 接收四个参数”，question 问“接收几个参数”。
+好例：question 问“largestOffset 能从 records 计算，为什么仍由调用方传入？”
 只输出 JSON：{"cards":[{"evidence_index":0,"title":"知识点标题","summary":"结论","key_terms":["术语"],"question":"单一机制追问？"}]}`,
         },
         {
@@ -668,7 +699,7 @@ export async function generateChapterDigests(req: GenerateDigestRequest): Promis
     try {
       const parsed = parseJsonFromResponse<unknown>(response.choices[0]?.message?.content || '')
       candidates = normalizeGroundedCards(parsed, remaining, req.chapterContent)
-        .filter((candidate) => !accepted.some((card) => card.title === candidate.title || card.question === candidate.question))
+        .filter((candidate) => !accepted.some(({ card }) => card.title === candidate.title || card.question === candidate.question))
     } catch {
       retryReason = '卡片返回格式不完整'
       continue
@@ -687,13 +718,10 @@ export async function generateChapterDigests(req: GenerateDigestRequest): Promis
     }
   }
 
-  if (accepted.length < 3) {
-    throw new Error(`仅有 ${accepted.length} 张卡通过完整证据校验，请重试本章生成`)
+  if (accepted.length < 1) {
+    throw new Error('没有候选问题通过机制深度与答案隐藏校验，请重试本章生成')
   }
-  const orderByTitle = new Map(evidencePlans.map((evidence, index) => [evidence.name, index]))
-  return accepted
-    .sort((left, right) => (orderByTitle.get(left.title) ?? 99) - (orderByTitle.get(right.title) ?? 99))
-    .slice(0, 5)
+  return accepted.sort((left, right) => right.score - left.score).slice(0, 1).map(({ card }) => card)
 }
 
 export async function explainImageStream(req: ImageExplainRequest): Promise<void> {

@@ -143,6 +143,71 @@ export interface ExplainCodeRequest {
   chapterTitle?: string
 }
 
+export type FormulaSourceFormat = 'mathml' | 'latex' | 'plain'
+export type FormulaExplanationMode = 'symbols' | 'pipeline' | 'tiny_run' | 'rationale'
+
+export interface FormulaSelectionInfo {
+  source: string
+  displayText: string
+  format: FormulaSourceFormat
+  contextBefore: string
+  contextAfter: string
+}
+
+export interface FormulaSymbol {
+  token: string
+  meaning: string
+  dimension: string
+  definedAt: string
+  previousOccurrence: string
+}
+
+export interface FormulaPipelineStep {
+  expression: string
+  explanation: string
+  inputShape: string
+  outputShape: string
+}
+
+export interface FormulaTinyRunStep {
+  expression: string
+  calculation: string
+  result: string
+}
+
+export interface FormulaExplanationResult {
+  symbols: FormulaSymbol[]
+  pipelineSteps: FormulaPipelineStep[]
+  tinyRun?: {
+    assumptions: string[]
+    steps: FormulaTinyRunStep[]
+    conclusion: string
+    verified: boolean
+  }
+  rationale: {
+    part: string
+    purpose: string
+    counterfactual: string
+  }[]
+  mnemonic: string
+  fallbackText?: string
+  fallback: boolean
+  fromCache: boolean
+}
+
+export interface ExplainFormulaRequest {
+  bookId: string
+  chapterId: string | null
+  source: string
+  displayText: string
+  format: FormulaSourceFormat
+  contextBefore: string
+  contextAfter: string
+  tone: ExplanationTone
+  bookTitle?: string
+  chapterTitle?: string
+}
+
 export interface Book {
   id: string
   title: string
@@ -406,6 +471,7 @@ export interface SpeculaAPI {
     explainImageStream: (req: ImageExplainRequest) => Promise<void>
     explainImageNeed: (req: ImageExplainNeedRequest) => Promise<StructuredExplanation>
     explainCode: (req: ExplainCodeRequest) => Promise<CodeExplanationResult>
+    explainFormula: (req: ExplainFormulaRequest) => Promise<FormulaExplanationResult>
     inferNeed: (bookId: string, selectedText: string) => Promise<InferredExplanationNeed | null>
     explainNeed: (req: ExplainNeedRequest) => Promise<StructuredExplanation>
     recordNeedSwitch: (data: {

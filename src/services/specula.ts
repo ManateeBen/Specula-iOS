@@ -15,6 +15,7 @@ import * as settingsService from './settings.service'
 import * as quickBrowseService from './quickBrowse.service'
 import * as explanationService from './explanation.service'
 import * as codeExplanationService from './codeExplanation.service'
+import * as formulaExplanationService from './formulaExplanation.service'
 import { getFileUrl } from './storage'
 import { onExplainChunk } from './streamEvents'
 
@@ -96,6 +97,7 @@ export const speculaApi: SpeculaAPI = {
     explainImageStream: (req) => aiService.explainImageStream(req),
     explainImageNeed: (req) => explanationService.explainImageNeed(req),
     explainCode: (req) => codeExplanationService.explainCode(req),
+    explainFormula: (req) => formulaExplanationService.explainFormula(req),
     inferNeed: (bookId, selectedText) => Promise.resolve(explanationService.inferNeed(bookId, selectedText)),
     explainNeed: (req) => explanationService.explainNeed(req),
     recordNeedSwitch: (data) => {

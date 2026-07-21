@@ -5,18 +5,16 @@ import * as bookService from './book.service'
 import { generateChapterDigests } from './ai.service'
 
 const UI_TESTING = import.meta.env.VITE_UI_TESTING === 'true'
-const MIN_CARD_COUNT = 3
-const DIGEST_QUALITY_VERSION = 2
+const MIN_CARD_COUNT = 1
+const DIGEST_QUALITY_VERSION = 3
 
 function makeUiTestDigests(chapterTitle: string, content: string) {
-  const anchors = [0, 32, 64].map((offset) => content.trim().slice(offset, offset + 30))
+  const anchors = [0].map((offset) => content.trim().slice(offset, offset + 30))
   return anchors.map((answerAnchor, index) => ({
     title: `${chapterTitle} 的核心判断 ${index + 1}`,
     summary: `本章提出第 ${index + 1} 个关键结论。它构成理解本章的核心支点。具体机制仍需回到正文确认。`,
     keyTerms: ['关键结论', '核心支点'],
-    question: index === 0
-      ? '为什么仅知道这个结论，还不足以真正理解本章？'
-      : `第 ${index + 1} 个核心判断成立，需要依赖什么机制？`,
+    question: '如果拿掉支撑这个结论的关键机制，为什么本章的主张就无法成立？',
     answerAnchor,
     evidenceText: answerAnchor,
     expectedAnswer: '需要回到这段原文，根据其中的机制说明作答。',

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useMemo } from 'react'
 import { List, SkipBack, SkipForward, Sparkles } from 'lucide-react'
-import type { Chapter, CodeSelectionInfo, Highlight, ImageSelectionInfo, ReadingMode } from '../../types'
+import type { Chapter, CodeSelectionInfo, FormulaSelectionInfo, Highlight, ImageSelectionInfo, ReadingMode } from '../../types'
 import { buildWeakPointIndexMap, getWeakPointColorSlot } from '../../utils/weakPointStyle'
 
 type HighlightColor = 'yellow' | 'pink' | 'purple' | 'blue' | 'green'
@@ -241,6 +241,65 @@ function prepareCodeBlocks(el: HTMLElement): void {
   }
 }
 
+function looksLikeStandaloneFormula(text: string): boolean {
+  const value = text.replace(/\s+/g, ' ').trim()
+  if (value.length < 6 || value.length > 180 || !value.includes('=')) return false
+  if (/[。！？；]{1}/.test(value)) return false
+  const mathSignals = value.match(/(?:softmax|sqrt|log|exp|sin|cos|Attention|∑|Σ|∫|√|≤|≥|≈|→|\^|_[a-z0-9{])/gi) || []
+  return mathSignals.length >= 1
+}
+
+function prepareFormulaBlocks(el: HTMLElement): void {
+  const candidates: { element: HTMLElement; source: string; display: string; format: FormulaSelectionInfo['format'] }[] = []
+  for (const node of Array.from(el.querySelectorAll('math'))) {
+    const math = node as HTMLElement
+    if (math.closest('.epub-formula-shell')) continue
+    const latex = math.querySelector('annotation[encoding="application/x-tex"]')?.textContent?.trim()
+    candidates.push({ element: math, source: latex || math.outerHTML, display: math.textContent?.replace(/\s+/g, ' ').trim() || latex || '', format: latex ? 'latex' : 'mathml' })
+  }
+  for (const node of Array.from(el.querySelectorAll('script[type*="math/tex"], [data-latex], .formula, .latex'))) {
+    const element = node as HTMLElement
+    if (element.closest('.epub-formula-shell') || element.querySelector('.epub-formula-shell')) continue
+    const source = element.dataset.latex || element.textContent?.replace(/\s+/g, ' ').trim() || ''
+    if (source) candidates.push({ element, source, display: source, format: element.dataset.latex || element.tagName === 'SCRIPT' ? 'latex' : 'plain' })
+  }
+  for (const node of Array.from(el.querySelectorAll('p'))) {
+    const paragraph = node as HTMLElement
+    if (paragraph.closest('pre, .epub-code-shell, .epub-formula-shell') || paragraph.children.length > 4) continue
+    const display = paragraph.textContent?.replace(/\s+/g, ' ').trim() || ''
+    if (looksLikeStandaloneFormula(display)) candidates.push({ element: paragraph, source: display, display, format: 'plain' })
+  }
+
+  const used = new Set<HTMLElement>()
+  for (const candidate of candidates) {
+    if (used.has(candidate.element) || candidate.element.closest('.epub-formula-shell') || candidate.element.querySelector('.epub-formula-shell')) continue
+    const parent = candidate.element.parentNode
+    if (!parent || !candidate.display) continue
+    const shell = document.createElement('div')
+    shell.className = 'epub-formula-shell'
+    shell.dataset.formulaSource = candidate.source.slice(0, 8000)
+    shell.dataset.formulaDisplay = candidate.display.slice(0, 1000)
+    shell.dataset.formulaFormat = candidate.format
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.className = 'epub-formula-explain'
+    button.dataset.formulaExplain = 'true'
+    button.setAttribute('aria-label', 'AI 解读公式')
+    button.setAttribute('title', 'AI 解读公式')
+    parent.insertBefore(shell, candidate.element)
+    if (candidate.element.tagName === 'SCRIPT') {
+      const visual = document.createElement('span')
+      visual.className = 'epub-formula-source'
+      visual.textContent = candidate.display
+      shell.append(button, visual)
+      candidate.element.remove()
+    } else {
+      shell.append(button, candidate.element)
+    }
+    used.add(candidate.element)
+  }
+}
+
 function detectCodeLanguage(pre: HTMLElement): string {
   const candidates = [pre.dataset.language, pre.className, pre.querySelector('code')?.className]
   for (const candidate of candidates) {
@@ -329,6 +388,7 @@ interface Props {
   onHighlightSelect?: (highlight: Highlight) => void
   onImageSelect?: (info: ImageSelectionInfo) => void
   onCodeSelect?: (info: CodeSelectionInfo) => void
+  onFormulaSelect?: (info: FormulaSelectionInfo) => void
   onGapAnchorStateChange?: (state: 'locating' | 'visible' | 'missing') => void
   onUnlocatedChange?: (ids: string[]) => void
   onToggleToc?: () => void
@@ -367,6 +427,7 @@ export default function EpubReader({
   onHighlightSelect,
   onImageSelect,
   onCodeSelect,
+  onFormulaSelect,
   onGapAnchorStateChange,
   onUnlocatedChange,
   onToggleToc,
@@ -526,6 +587,7 @@ export default function EpubReader({
     const el = contentRef.current
     if (!el) return
     el.innerHTML = html
+    prepareFormulaBlocks(el)
     sanitizeRenderedChapter(el)
     prepareCodeBlocks(el)
     const images = Array.from(el.querySelectorAll('img'))
@@ -1450,6 +1512,21 @@ export default function EpubReader({
           contextAfter: nearbyText(shell, 'after'),
           originalLineCount: originalLines.length,
           truncated: originalLines.length > 200 || fullCode.length > 16000,
+        })
+        e.stopPropagation()
+        return
+      }
+    }
+    const formulaButton = target.closest('[data-formula-explain]') as HTMLButtonElement | null
+    if (formulaButton) {
+      const shell = formulaButton.closest('.epub-formula-shell') as HTMLElement | null
+      if (shell && onFormulaSelect) {
+        onFormulaSelect({
+          source: shell.dataset.formulaSource || shell.textContent || '',
+          displayText: shell.dataset.formulaDisplay || shell.textContent || '',
+          format: (shell.dataset.formulaFormat as FormulaSelectionInfo['format']) || 'plain',
+          contextBefore: nearbyText(shell, 'before'),
+          contextAfter: nearbyText(shell, 'after'),
         })
         e.stopPropagation()
         return
