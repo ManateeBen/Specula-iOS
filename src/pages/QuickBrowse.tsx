@@ -32,15 +32,13 @@ export default function QuickBrowse() {
     ])
     setBook(nextBook)
     setProgress(saved)
-    if (!saved.digests.some((item) => item.chapterId === chapterId)) {
-      try {
-        setProgress(await window.specula.quickBrowse.prepare(bookId, chapterId))
-      } catch (err) {
-        setError(err instanceof Error ? err.message : '本章小样生成失败')
-      } finally {
-        setLoading(false)
-      }
-    } else {
+    try {
+      // prepare is cheap for current cards and transparently regenerates cards
+      // created by an older grounding contract.
+      setProgress(await window.specula.quickBrowse.prepare(bookId, chapterId))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '本章小样生成失败')
+    } finally {
       setLoading(false)
     }
   }, [bookId, chapterId])

@@ -9,14 +9,16 @@ import {
   PanelLeftOpen,
   History,
   Check,
+  MapPin,
 } from 'lucide-react'
 import EpubReader from '../components/epub/EpubReader'
 import ChapterToc from '../components/ChapterToc'
 import HighlightPopover from '../components/HighlightPopover'
 import HighlightCard from '../components/HighlightCard'
 import ImageExplanationPopover from '../components/ImageExplanationPopover'
+import CodeExplanationExplorer from '../components/CodeExplanationExplorer'
 import { useSettingsStore } from '../stores/settingsStore'
-import type { Book, Chapter, ChapterDigest, Highlight, ImageSelectionInfo } from '../types'
+import type { Book, Chapter, ChapterDigest, CodeSelectionInfo, Highlight, ImageSelectionInfo } from '../types'
 import {
   buildWeakPointIndexMap,
   getWeakPointIndex,
@@ -73,12 +75,16 @@ export default function Reader() {
     action: 'explain' | 'explain-highlight'
   } | null>(null)
   const [imageSelection, setImageSelection] = useState<ImageSelectionInfo | null>(null)
+  const [codeSelection, setCodeSelection] = useState<CodeSelectionInfo | null>(null)
   const [activeHighlight, setActiveHighlight] = useState<Highlight | null>(null)
   const [currentChapterId, setCurrentChapterId] = useState<string | null>(null)
   const [initialPosition, setInitialPosition] = useState<string>('')
   const [chapterProgress, setChapterProgress] = useState(0)
   const [runtimeMinutes, setRuntimeMinutes] = useState(3)
   const [activeGap, setActiveGap] = useState<ChapterDigest | null>(null)
+  const [gapAnchorState, setGapAnchorState] = useState<'locating' | 'visible' | 'missing'>('locating')
+  const [gapPinCollapsed, setGapPinCollapsed] = useState(false)
+  const [gapFallbackUnlocked, setGapFallbackUnlocked] = useState(false)
   const gapOpenedAt = useRef(0)
   const quickBrowseExposureTracked = useRef(false)
 
@@ -204,6 +210,29 @@ export default function Reader() {
   }, [bookId, gapId])
 
   useEffect(() => {
+    if (!activeGap) return
+    setGapAnchorState('locating')
+    setGapPinCollapsed(false)
+    setGapFallbackUnlocked(false)
+    const collapseTimer = window.setTimeout(() => setGapPinCollapsed(true), 3000)
+    return () => window.clearTimeout(collapseTimer)
+  }, [activeGap?.id])
+
+  useEffect(() => {
+    if (!activeGap || gapAnchorState !== 'missing') return
+    const fallbackTimer = window.setTimeout(() => setGapFallbackUnlocked(true), 8000)
+    return () => window.clearTimeout(fallbackTimer)
+  }, [activeGap, gapAnchorState])
+
+  useEffect(() => {
+    if (!bookId || !activeGap || gapAnchorState === 'locating') return
+    void window.specula.quickBrowse.track(bookId, `quick_browse_anchor_${gapAnchorState}`, activeGap.chapterId, {
+      cardId: activeGap.id,
+      qualityVersion: activeGap.qualityVersion,
+    })
+  }, [activeGap, bookId, gapAnchorState])
+
+  useEffect(() => {
     if (!QUICK_BROWSE_ENABLED || !bookId || chapters.length === 0 || quickBrowseExposureTracked.current) return
     quickBrowseExposureTracked.current = true
     void window.specula.quickBrowse.track(bookId, 'quick_browse_entry_exposed', undefined, { chapterCount: chapters.length })
@@ -248,6 +277,7 @@ export default function Reader() {
       return
     }
     setImageSelection(null)
+    setCodeSelection(null)
     setActiveHighlight(null)
     setSelection({ text, context, rect, action: 'explain' })
   }, [book])
@@ -258,14 +288,23 @@ export default function Reader() {
       return
     }
     setImageSelection(null)
+    setCodeSelection(null)
     setActiveHighlight(null)
     setSelection({ text, context, rect, action: 'explain-highlight' })
   }, [book])
 
   const handleImageSelect = useCallback((info: ImageSelectionInfo) => {
     setSelection(null)
+    setCodeSelection(null)
     setActiveHighlight(null)
     setImageSelection(info)
+  }, [])
+
+  const handleCodeSelect = useCallback((info: CodeSelectionInfo) => {
+    setSelection(null)
+    setImageSelection(null)
+    setActiveHighlight(null)
+    setCodeSelection(info)
   }, [])
 
   const refreshHighlights = async () => {
@@ -301,6 +340,10 @@ export default function Reader() {
     setCurrentChapterId(chapterId)
   }, [])
 
+  const handleGapAnchorStateChange = useCallback((state: 'locating' | 'visible' | 'missing') => {
+    setGapAnchorState(state)
+  }, [])
+
   const handleRepairGap = useCallback(async () => {
     if (!bookId || !activeGap) return
     await window.specula.quickBrowse.track(bookId, 'quick_browse_gap_reading_completed', activeGap.chapterId, {
@@ -309,6 +352,7 @@ export default function Reader() {
     await window.specula.quickBrowse.repair(bookId, activeGap.id)
     window.location.hash = `/quick-browse/${bookId}/${activeGap.chapterId}`
   }, [activeGap, bookId])
+  const gapCanRepair = gapAnchorState === 'visible' || (gapAnchorState === 'missing' && gapFallbackUnlocked)
   if (error) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4">
@@ -439,23 +483,47 @@ export default function Reader() {
         {activeGap && activeGap.chapterId === activeChapterId && (
           <div
             role="region"
-            className={`z-10 shrink-0 border border-dashed border-specula-600 bg-[#f4f1ea]/95 px-4 py-3 text-[#141414] ${isMobile ? 'absolute inset-x-3' : 'mx-3 mt-3'}`}
+            className={`reader-gap-pin z-10 shrink-0 ${gapPinCollapsed ? 'is-collapsed' : ''} ${gapAnchorState === 'visible' ? 'is-arrived' : ''} ${isMobile ? 'absolute inset-x-3' : 'mx-3 mt-3'}`}
             style={isMobile ? { top: 'calc(max(env(safe-area-inset-top), 54px) + 4.25rem)' } : undefined}
             aria-label="pending-question-pin"
           >
-            <p className="font-mono text-xs font-semibold text-specula-700">OPEN QUESTION · 你带着一个待答问题来</p>
-            <p className="mt-1 text-sm font-semibold leading-6">{activeGap.question}</p>
-            <button onClick={() => void handleRepairGap()} aria-label="mark-question-answered" className="mt-3 min-h-11 bg-[#141414] px-4 text-sm font-semibold text-[#f4f1ea] active:opacity-80">
-              <Check className="mr-1 inline h-4 w-4" />
-              我答上了
+            <button
+              type="button"
+              className="reader-gap-pin__toggle"
+              onClick={() => setGapPinCollapsed((collapsed) => !collapsed)}
+              aria-expanded={!gapPinCollapsed}
+              aria-label={gapPinCollapsed ? '展开待答问题' : '收起待答问题'}
+            >
+              <MapPin aria-hidden />
+              <span>OPEN · 待答问题</span>
+              <small>{gapAnchorState === 'visible' ? '已到回答段落' : gapAnchorState === 'missing' ? '定位未命中' : '正在定位'}</small>
             </button>
+            {!gapPinCollapsed && (
+              <div className="reader-gap-pin__body">
+                <p>{activeGap.question}</p>
+                <span className="reader-gap-pin__status">
+                  {gapAnchorState === 'visible'
+                    ? '回答这道问题需要的内容就在当前高亮段落。'
+                    : gapAnchorState === 'missing'
+                      ? gapFallbackUnlocked ? '未能精确定位，你仍可在读懂后手动完成。' : '未能精确定位，先阅读本章相关内容。'
+                      : '正在把你带到回答这道问题所需的原文。'}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void handleRepairGap()}
+                  disabled={!gapCanRepair}
+                  aria-label="mark-question-answered"
+                  className="reader-gap-pin__repair"
+                >
+                  <Check aria-hidden />
+                  {gapCanRepair ? '我答上了' : '到达回答段落后可完成'}
+                </button>
+              </div>
+            )}
           </div>
         )}
 
-        <div
-          className="relative flex-1 overflow-hidden"
-          style={isMobile && activeGap ? { marginTop: 'calc(max(env(safe-area-inset-top), 54px) + 13rem)' } : undefined}
-        >
+        <div className="relative flex-1 overflow-hidden">
           {book.format === 'epub' ? (
             <EpubReader
               bookId={book.id}
@@ -472,12 +540,15 @@ export default function Reader() {
               initialPosition={initialPosition}
               highlightExcerpt={deepLinkHighlight}
               gapAnchorExcerpt={activeGap?.chapterId === activeChapterId ? activeGap.answerAnchor : null}
+              gapEvidenceExcerpt={activeGap?.chapterId === activeChapterId ? activeGap.evidenceText : null}
               highlights={highlights}
               onProgress={handleProgress}
               onTextSelect={handleTextSelect}
               onExplainAndHighlight={handleExplainAndHighlight}
               onHighlightSelect={setActiveHighlight}
               onImageSelect={handleImageSelect}
+              onCodeSelect={handleCodeSelect}
+              onGapAnchorStateChange={handleGapAnchorStateChange}
               onUnlocatedChange={setUnlocatedIds}
               onToggleToc={() => setTocOpen((open) => !open)}
               onPreview={QUICK_BROWSE_ENABLED && activeChapterId && !pdfAiDisabled
@@ -541,6 +612,17 @@ export default function Reader() {
               chapterTitle={currentChapter?.title}
               onClose={() => setImageSelection(null)}
               onSaved={refreshHighlights}
+            />
+          )}
+
+          {codeSelection && bookId && (
+            <CodeExplanationExplorer
+              selection={codeSelection}
+              bookId={bookId}
+              chapterId={activeChapterId}
+              bookTitle={book.title}
+              chapterTitle={currentChapter?.title}
+              onClose={() => setCodeSelection(null)}
             />
           )}
         </div>

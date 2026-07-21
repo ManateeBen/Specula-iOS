@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useMemo } from 'react'
 import { List, SkipBack, SkipForward, Sparkles } from 'lucide-react'
-import type { Chapter, Highlight, ImageSelectionInfo, ReadingMode } from '../../types'
+import type { Chapter, CodeSelectionInfo, Highlight, ImageSelectionInfo, ReadingMode } from '../../types'
 import { buildWeakPointIndexMap, getWeakPointColorSlot } from '../../utils/weakPointStyle'
 
 type HighlightColor = 'yellow' | 'pink' | 'purple' | 'blue' | 'green'
@@ -221,6 +221,46 @@ function sanitizeRenderedChapter(el: HTMLElement): void {
   el.querySelectorAll('head, style, script, link, meta, title').forEach((node) => node.remove())
 }
 
+function prepareCodeBlocks(el: HTMLElement): void {
+  for (const pre of Array.from(el.querySelectorAll('pre'))) {
+    if (pre.closest('.epub-code-shell')) continue
+    const parent = pre.parentNode
+    if (!parent) continue
+
+    const shell = document.createElement('div')
+    shell.className = 'epub-code-shell'
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.className = 'epub-code-explain'
+    button.dataset.codeExplain = 'true'
+    button.setAttribute('aria-label', 'AI 解读代码')
+    button.setAttribute('title', 'AI 解读代码')
+
+    parent.insertBefore(shell, pre)
+    shell.append(button, pre)
+  }
+}
+
+function detectCodeLanguage(pre: HTMLElement): string {
+  const candidates = [pre.dataset.language, pre.className, pre.querySelector('code')?.className]
+  for (const candidate of candidates) {
+    if (!candidate) continue
+    const match = candidate.match(/(?:language|lang)-([\w+#.-]+)/i)
+    if (match?.[1]) return match[1]
+  }
+  return 'plain'
+}
+
+function nearbyText(element: Element | null, direction: 'before' | 'after'): string {
+  let sibling = direction === 'before' ? element?.previousElementSibling : element?.nextElementSibling
+  while (sibling) {
+    const text = sibling.textContent?.replace(/\s+/g, ' ').trim() || ''
+    if (text) return direction === 'before' ? text.slice(-1200) : text.slice(0, 1200)
+    sibling = direction === 'before' ? sibling.previousElementSibling : sibling.nextElementSibling
+  }
+  return ''
+}
+
 // Highlight a range by wrapping each intersected text-node segment in its own
 // <mark>. Per-node wrapping always satisfies surroundContents (single text
 // node, no partial elements), so it works even when the range spans multiple
@@ -281,12 +321,15 @@ interface Props {
   initialPosition?: string
   highlightExcerpt?: string | null
   gapAnchorExcerpt?: string | null
+  gapEvidenceExcerpt?: string | null
   highlights?: Highlight[]
   onProgress: (chapterId: string | null, position: string) => void
   onTextSelect: (text: string, context: string, rect: DOMRect) => void
   onExplainAndHighlight: (text: string, context: string, rect: DOMRect) => void
   onHighlightSelect?: (highlight: Highlight) => void
   onImageSelect?: (info: ImageSelectionInfo) => void
+  onCodeSelect?: (info: CodeSelectionInfo) => void
+  onGapAnchorStateChange?: (state: 'locating' | 'visible' | 'missing') => void
   onUnlocatedChange?: (ids: string[]) => void
   onToggleToc?: () => void
   onPreview?: () => void
@@ -316,12 +359,15 @@ export default function EpubReader({
   initialPosition,
   highlightExcerpt,
   gapAnchorExcerpt,
+  gapEvidenceExcerpt,
   highlights,
   onProgress,
   onTextSelect,
   onExplainAndHighlight,
   onHighlightSelect,
   onImageSelect,
+  onCodeSelect,
+  onGapAnchorStateChange,
   onUnlocatedChange,
   onToggleToc,
   onPreview,
@@ -481,6 +527,7 @@ export default function EpubReader({
     if (!el) return
     el.innerHTML = html
     sanitizeRenderedChapter(el)
+    prepareCodeBlocks(el)
     const images = Array.from(el.querySelectorAll('img'))
     const refreshLayout = () => setViewportVersion((version) => version + 1)
     images.forEach((img) => {
@@ -590,7 +637,9 @@ export default function EpubReader({
     const el = contentRef.current
     if (!el) return
     const range = locateExcerpt(el, highlightExcerpt)
-    const target = (range?.startContainer.parentElement as HTMLElement) || null
+    const startElement = (range?.startContainer.parentElement as HTMLElement) || null
+    const target = (startElement?.closest('p, li, blockquote, pre, h1, h2, h3, h4, h5, h6') as HTMLElement | null)
+      || startElement
     if (target) {
       target.scrollIntoView({ behavior: 'smooth', block: 'center' })
       target.classList.add('deeplink-flash')
@@ -600,16 +649,33 @@ export default function EpubReader({
   }, [html, highlightExcerpt, loading, chapterHighlights])
 
   useEffect(() => {
-    if (!gapAnchorExcerpt || loading) return
+    const evidenceExcerpt = gapEvidenceExcerpt || gapAnchorExcerpt
+    if (!evidenceExcerpt || loading) return
     const el = contentRef.current
     if (!el) return
-    const range = locateExcerpt(el, gapAnchorExcerpt)
-    const target = (range?.startContainer.parentElement as HTMLElement) || null
-    if (!target) return
+    onGapAnchorStateChange?.('locating')
+    const range = locateExcerpt(el, evidenceExcerpt) || (gapAnchorExcerpt ? locateExcerpt(el, gapAnchorExcerpt) : null)
+    const startElement = (range?.startContainer.parentElement as HTMLElement) || null
+    const target = (startElement?.closest('p, li, blockquote, pre, h1, h2, h3, h4, h5, h6') as HTMLElement | null)
+      || startElement
+    if (!target) {
+      onGapAnchorStateChange?.('missing')
+      return
+    }
     target.scrollIntoView({ behavior: 'smooth', block: 'center' })
     target.classList.add('gap-anchor-highlight')
-    return () => target.classList.remove('gap-anchor-highlight')
-  }, [html, gapAnchorExcerpt, loading, chapterHighlights])
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry?.isIntersecting && entry.intersectionRatio >= 0.35) {
+        target.classList.add('gap-anchor-arrived')
+        onGapAnchorStateChange?.('visible')
+      }
+    }, { root: scrollRef.current, threshold: [0.35, 0.6] })
+    observer.observe(target)
+    return () => {
+      observer.disconnect()
+      target.classList.remove('gap-anchor-highlight', 'gap-anchor-arrived')
+    }
+  }, [html, gapAnchorExcerpt, gapEvidenceExcerpt, loading, onGapAnchorStateChange])
 
   // Persist intra-chapter scroll position as a fraction (debounced).
   const handleScroll = () => {
@@ -1183,7 +1249,7 @@ export default function EpubReader({
       lastY: touch.clientY,
       startedAt: Date.now(),
       tracking: true,
-      startedInCodeBlock: Boolean(target.closest('pre')),
+      startedInCodeBlock: Boolean(target.closest('pre, .epub-code-explain')),
       axis: 'pending',
       dragging: false,
     }
@@ -1364,6 +1430,27 @@ export default function EpubReader({
       const highlight = highlights?.find((h) => h.id === id)
       if (highlight) {
         onHighlightSelect?.(highlight)
+        e.stopPropagation()
+        return
+      }
+    }
+    const codeButton = target.closest('[data-code-explain]') as HTMLButtonElement | null
+    if (codeButton) {
+      const shell = codeButton.closest('.epub-code-shell')
+      const pre = shell?.querySelector('pre') as HTMLElement | null
+      if (pre && onCodeSelect) {
+        const fullCode = (pre.textContent || '').replace(/\r\n?/g, '\n').replace(/^\n+|\n+$/g, '')
+        const originalLines = fullCode.split('\n')
+        let code = originalLines.slice(0, 200).join('\n')
+        if (code.length > 16000) code = code.slice(0, 16000)
+        onCodeSelect({
+          code,
+          language: detectCodeLanguage(pre),
+          contextBefore: nearbyText(shell, 'before'),
+          contextAfter: nearbyText(shell, 'after'),
+          originalLineCount: originalLines.length,
+          truncated: originalLines.length > 200 || fullCode.length > 16000,
+        })
         e.stopPropagation()
         return
       }

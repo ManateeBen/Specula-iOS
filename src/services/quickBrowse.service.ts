@@ -6,6 +6,7 @@ import { generateChapterDigests } from './ai.service'
 
 const UI_TESTING = import.meta.env.VITE_UI_TESTING === 'true'
 const MIN_CARD_COUNT = 3
+const DIGEST_QUALITY_VERSION = 2
 
 function makeUiTestDigests(chapterTitle: string, content: string) {
   const anchors = [0, 32, 64].map((offset) => content.trim().slice(offset, offset + 30))
@@ -17,6 +18,9 @@ function makeUiTestDigests(chapterTitle: string, content: string) {
       ? '为什么仅知道这个结论，还不足以真正理解本章？'
       : `第 ${index + 1} 个核心判断成立，需要依赖什么机制？`,
     answerAnchor,
+    evidenceText: answerAnchor,
+    expectedAnswer: '需要回到这段原文，根据其中的机制说明作答。',
+    qualityVersion: DIGEST_QUALITY_VERSION,
   }))
 }
 
@@ -32,6 +36,9 @@ interface DigestRow {
   key_terms_json: string
   question: string
   answer_anchor: string
+  evidence_text: string
+  expected_answer: string
+  quality_version: number
   status: string | null
   answered_at: string | null
   updated_at: string
@@ -49,6 +56,9 @@ function rowToDigest(row: DigestRow): ChapterDigest {
     keyTerms: JSON.parse(row.key_terms_json || '[]'),
     question: row.question,
     answerAnchor: row.answer_anchor,
+    evidenceText: row.evidence_text || row.answer_anchor,
+    expectedAnswer: row.expected_answer || '',
+    qualityVersion: Number(row.quality_version) || 1,
     status: (row.status || 'unanswered') as ChapterDigest['status'],
     answeredAt: row.answered_at,
     updatedAt: row.updated_at,
@@ -59,6 +69,7 @@ export function getProgress(bookId: string): QuickBrowseProgress {
   const digests = queryAll<DigestRow>(
     `SELECT d.id, d.chapter_id, c.title AS chapter_title, c.order_index, d.card_index,
             d.title, d.summary, d.key_terms_json, d.question, d.answer_anchor,
+            d.evidence_text, d.expected_answer, d.quality_version,
             a.status, a.answered_at, d.updated_at
      FROM quick_browse_cards d
      JOIN chapters c ON c.id = d.chapter_id
@@ -73,8 +84,8 @@ export function getProgress(bookId: string): QuickBrowseProgress {
   )?.count || 0
   const generatedChapterCount = queryOne<{ count: number }>(
     `SELECT COUNT(*) AS count FROM quick_browse_generations
-     WHERE book_id = ? AND status = 'ready'`,
-    [bookId]
+     WHERE book_id = ? AND status = 'ready' AND quality_version >= ?`,
+    [bookId, DIGEST_QUALITY_VERSION]
   )?.count || 0
   return {
     bookId,
@@ -87,13 +98,14 @@ export function getProgress(bookId: string): QuickBrowseProgress {
 
 function recordGeneration(bookId: string, chapterId: string, status: 'generating' | 'ready' | 'failed', error = '') {
   runSql(
-    `INSERT INTO quick_browse_generations (chapter_id, book_id, status, error_message, updated_at)
-     VALUES (?, ?, ?, ?, datetime('now'))
+    `INSERT INTO quick_browse_generations (chapter_id, book_id, status, error_message, quality_version, updated_at)
+     VALUES (?, ?, ?, ?, ?, datetime('now'))
      ON CONFLICT(chapter_id) DO UPDATE SET
        status = excluded.status,
        error_message = excluded.error_message,
+       quality_version = excluded.quality_version,
        updated_at = datetime('now')`,
-    [chapterId, bookId, status, error]
+    [chapterId, bookId, status, error, DIGEST_QUALITY_VERSION]
   )
 }
 
@@ -105,11 +117,21 @@ export async function prepare(bookId: string, chapterId: string): Promise<QuickB
     'SELECT COUNT(*) AS count FROM quick_browse_cards WHERE chapter_id = ?',
     [chapterId]
   )?.count || 0
-  const generation = queryOne<{ status: string }>(
-    'SELECT status FROM quick_browse_generations WHERE chapter_id = ?',
+  const generation = queryOne<{ status: string; quality_version: number }>(
+    'SELECT status, quality_version FROM quick_browse_generations WHERE chapter_id = ?',
     [chapterId]
   )
-  if (generation?.status === 'ready' && existingCount >= MIN_CARD_COUNT) return getProgress(bookId)
+  const groundedCount = queryOne<{ count: number }>(
+    `SELECT COUNT(*) AS count FROM quick_browse_cards
+     WHERE chapter_id = ? AND quality_version >= ? AND evidence_text <> '' AND expected_answer <> ''`,
+    [chapterId, DIGEST_QUALITY_VERSION]
+  )?.count || 0
+  if (
+    generation?.status === 'ready'
+    && Number(generation.quality_version) >= DIGEST_QUALITY_VERSION
+    && existingCount >= MIN_CARD_COUNT
+    && groundedCount === existingCount
+  ) return getProgress(bookId)
 
   recordGeneration(bookId, chapterId, 'generating')
   try {
@@ -141,18 +163,23 @@ export async function prepare(bookId: string, chapterId: string): Promise<QuickB
       { sql: 'DELETE FROM quick_browse_cards WHERE chapter_id = ?', params: [chapterId] },
       ...digests.slice(0, 5).map((digest, index) => ({
         sql: `INSERT INTO quick_browse_cards
-          (id, chapter_id, book_id, card_index, title, summary, key_terms_json, question, answer_anchor, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+          (id, chapter_id, book_id, card_index, title, summary, key_terms_json, question,
+           answer_anchor, evidence_text, expected_answer, quality_version, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
         params: [
           uuidv4(), chapterId, bookId, index, digest.title, digest.summary,
           JSON.stringify(digest.keyTerms), digest.question, digest.answerAnchor,
+          digest.evidenceText, digest.expectedAnswer, DIGEST_QUALITY_VERSION,
         ],
       })),
       {
-        sql: `INSERT INTO quick_browse_generations (chapter_id, book_id, status, error_message, updated_at)
-              VALUES (?, ?, 'ready', '', datetime('now'))
-              ON CONFLICT(chapter_id) DO UPDATE SET status = 'ready', error_message = '', updated_at = datetime('now')`,
-        params: [chapterId, bookId],
+        sql: `INSERT INTO quick_browse_generations
+              (chapter_id, book_id, status, error_message, quality_version, updated_at)
+              VALUES (?, ?, 'ready', '', ?, datetime('now'))
+              ON CONFLICT(chapter_id) DO UPDATE SET
+                status = 'ready', error_message = '', quality_version = excluded.quality_version,
+                updated_at = datetime('now')`,
+        params: [chapterId, bookId, DIGEST_QUALITY_VERSION],
       },
     ]
     runMany(statements)

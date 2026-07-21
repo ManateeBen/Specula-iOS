@@ -146,6 +146,9 @@ export async function initDatabase(): Promise<SqlJsDatabase> {
       key_terms_json TEXT NOT NULL DEFAULT '[]',
       question TEXT NOT NULL,
       answer_anchor TEXT NOT NULL,
+      evidence_text TEXT NOT NULL DEFAULT '',
+      expected_answer TEXT NOT NULL DEFAULT '',
+      quality_version INTEGER NOT NULL DEFAULT 1,
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
       UNIQUE(chapter_id, card_index)
     );
@@ -163,6 +166,7 @@ export async function initDatabase(): Promise<SqlJsDatabase> {
       book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
       status TEXT NOT NULL CHECK(status IN ('generating', 'ready', 'failed')),
       error_message TEXT NOT NULL DEFAULT '',
+      quality_version INTEGER NOT NULL DEFAULT 1,
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -242,6 +246,10 @@ export async function initDatabase(): Promise<SqlJsDatabase> {
   try { db.run(`ALTER TABLE quiz_attempts ADD COLUMN results_json TEXT NOT NULL DEFAULT '[]'`) } catch { /* exists */ }
   try { db.run(`ALTER TABLE quiz_attempts ADD COLUMN time_taken_ms INTEGER NOT NULL DEFAULT 0`) } catch { /* exists */ }
   try { db.run(`ALTER TABLE quiz_attempts ADD COLUMN completed_at TEXT`) } catch { /* exists */ }
+  try { db.run(`ALTER TABLE quick_browse_cards ADD COLUMN evidence_text TEXT NOT NULL DEFAULT ''`) } catch { /* exists */ }
+  try { db.run(`ALTER TABLE quick_browse_cards ADD COLUMN expected_answer TEXT NOT NULL DEFAULT ''`) } catch { /* exists */ }
+  try { db.run(`ALTER TABLE quick_browse_cards ADD COLUMN quality_version INTEGER NOT NULL DEFAULT 1`) } catch { /* exists */ }
+  try { db.run(`ALTER TABLE quick_browse_generations ADD COLUMN quality_version INTEGER NOT NULL DEFAULT 1`) } catch { /* exists */ }
 
   try {
     db.run(`

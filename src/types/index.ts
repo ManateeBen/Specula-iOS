@@ -80,6 +80,69 @@ export interface InferredExplanationNeed {
   reason: string
 }
 
+export type CodeExplanationMode = 'structure' | 'annotations' | 'dry_run'
+
+export interface CodeSelectionInfo {
+  code: string
+  language: string
+  contextBefore: string
+  contextAfter: string
+  originalLineCount: number
+  truncated: boolean
+}
+
+export interface CodeLineRange {
+  start: number
+  end: number
+  reason: string
+  label?: string
+}
+
+export interface CodeLineAnnotation {
+  afterLine: number
+  why: string
+  relatedConcept: string
+}
+
+export interface CodeDryRunStep {
+  line: number
+  action: string
+  variables: Record<string, string>
+}
+
+export interface CodeExplanationResult {
+  mode: CodeExplanationMode
+  overview?: {
+    responsibility: string
+    chapterRelation: string
+  }
+  coreRanges: CodeLineRange[]
+  foldRanges: CodeLineRange[]
+  annotations: CodeLineAnnotation[]
+  dryRun?: {
+    assumptions: string[]
+    steps: CodeDryRunStep[]
+    result: string
+    chapterConnection: string
+  }
+  fallbackText?: string
+  fallback: boolean
+  fromCache: boolean
+}
+
+export interface ExplainCodeRequest {
+  bookId: string
+  chapterId: string | null
+  code: string
+  language: string
+  contextBefore: string
+  contextAfter: string
+  mode: CodeExplanationMode
+  tone: ExplanationTone
+  bookTitle?: string
+  chapterTitle?: string
+}
+
 export interface Book {
   id: string
   title: string
@@ -114,6 +177,9 @@ export interface ChapterDigest {
   keyTerms: string[]
   question: string
   answerAnchor: string
+  evidenceText: string
+  expectedAnswer: string
+  qualityVersion: number
   status: QuickBrowseStatus
   answeredAt: string | null
   updatedAt: string
@@ -339,6 +405,7 @@ export interface SpeculaAPI {
     explainStream: (req: ExplainRequest) => Promise<void>
     explainImageStream: (req: ImageExplainRequest) => Promise<void>
     explainImageNeed: (req: ImageExplainNeedRequest) => Promise<StructuredExplanation>
+    explainCode: (req: ExplainCodeRequest) => Promise<CodeExplanationResult>
     inferNeed: (bookId: string, selectedText: string) => Promise<InferredExplanationNeed | null>
     explainNeed: (req: ExplainNeedRequest) => Promise<StructuredExplanation>
     recordNeedSwitch: (data: {

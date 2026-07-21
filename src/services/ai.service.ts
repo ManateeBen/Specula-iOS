@@ -77,6 +77,8 @@ const MAX_TOKENS_DIGEST = 2600
 
 type GeneratedDigest = Pick<ChapterDigest, 'title' | 'summary' | 'keyTerms' | 'question' | 'answerAnchor'>
 
+type GroundedGeneratedDigest = GeneratedDigest & Pick<ChapterDigest, 'evidenceText' | 'expectedAnswer' | 'qualityVersion'>
+
 interface DigestSource {
   id: string
   text: string
@@ -94,21 +96,53 @@ function sampleChapterContent(content: string, maxChars = 16000): string {
 }
 
 function buildDigestSources(content: string): DigestSource[] {
-  const sampled = sampleChapterContent(content)
-  const segments = sampled.match(/[^\n。！？.!?]+[。！？.!?]?/g) || [sampled]
-  const sources: DigestSource[] = []
-  for (const rawSegment of segments) {
-    const segment = rawSegment.trim()
-    if (Array.from(segment).length < 15) continue
-    const characters = Array.from(segment)
-    for (let offset = 0; offset < characters.length; offset += 76) {
-      const text = characters.slice(offset, offset + 80).join('').trim()
-      if (Array.from(text).length < 15 || !content.includes(text)) continue
-      sources.push({ id: `S${sources.length}`, text })
-      if (sources.length >= 220) return sources
+  const paragraphs = content
+    .split(/\n+/)
+    .map((paragraph) => paragraph.trim())
+    .filter((paragraph) => Array.from(paragraph).length >= 24)
+
+  const semanticBlocks: string[] = []
+  for (const paragraph of paragraphs) {
+    if (Array.from(paragraph).length <= 900) {
+      semanticBlocks.push(paragraph)
+      continue
+    }
+
+    const characters = Array.from(paragraph)
+    let start = 0
+    while (start < characters.length) {
+      let end = Math.min(start + 700, characters.length)
+      if (end < characters.length) {
+        const floor = Math.min(start + 260, end)
+        for (let cursor = end; cursor > floor; cursor -= 1) {
+          if (/[。！？.!?；;]/.test(characters[cursor - 1])) {
+            end = cursor
+            break
+          }
+        }
+      }
+      const block = characters.slice(start, end).join('').trim()
+      if (Array.from(block).length >= 24 && content.includes(block)) semanticBlocks.push(block)
+      start = end
     }
   }
-  return sources
+
+  const maxPromptChars = 24000
+  const selected: string[] = []
+  let selectedChars = 0
+  const targetCount = Math.min(48, semanticBlocks.length)
+  for (let index = 0; index < targetCount; index += 1) {
+    const sourceIndex = targetCount === 1
+      ? 0
+      : Math.round((index * (semanticBlocks.length - 1)) / (targetCount - 1))
+    const block = semanticBlocks[sourceIndex]
+    if (!block || selected.includes(block)) continue
+    if (selectedChars + block.length > maxPromptChars && selected.length >= 12) continue
+    selected.push(block)
+    selectedChars += block.length
+  }
+
+  return selected.map((text, index) => ({ id: `S${index}`, text }))
 }
 
 function normalizeGeneratedDigest(raw: unknown, sourceMap: Map<string, string>): GeneratedDigest | null {
@@ -382,129 +416,284 @@ async function createChapterKnowledgePlan(
   return plan.length >= 3 ? plan : []
 }
 
-export async function generateChapterDigests(req: GenerateDigestRequest): Promise<GeneratedDigest[]> {
+interface DigestEvidencePlan {
+  evidenceIndex: number
+  name: string
+  sourceId: string
+  evidenceText: string
+  expectedAnswer: string
+}
+
+function normalizeEvidencePlans(
+  raw: unknown,
+  plan: ChapterKnowledgePoint[],
+  sourceMap: Map<string, string>,
+): DigestEvidencePlan[] {
+  if (!raw || typeof raw !== 'object') return []
+  const items = (raw as { evidence?: unknown[] }).evidence
+  if (!Array.isArray(items)) return []
+  const normalized: DigestEvidencePlan[] = []
+  for (const item of items) {
+    if (!item || typeof item !== 'object') continue
+    const value = item as Record<string, unknown>
+    const conceptIndex = Number(value.concept_index ?? value.conceptIndex)
+    const sourceId = normalizeDigestSourceId(value.source_id ?? value.sourceId)
+    const expectedAnswerValue = value.expected_answer ?? value.expectedAnswer
+    const expectedAnswer = typeof expectedAnswerValue === 'string' ? expectedAnswerValue.trim() : ''
+    const concept = plan[conceptIndex]
+    const evidenceText = sourceId ? sourceMap.get(sourceId) : undefined
+    if (!concept || !sourceId || !evidenceText || expectedAnswer.length < 12 || expectedAnswer.length > 360) continue
+    if (!concept.sourceIds.includes(sourceId)) continue
+    if (normalized.some((entry) => entry.name === concept.name || entry.sourceId === sourceId)) continue
+    normalized.push({
+      evidenceIndex: normalized.length,
+      name: concept.name,
+      sourceId,
+      evidenceText,
+      expectedAnswer,
+    })
+  }
+  return normalized.slice(0, 5)
+}
+
+async function createEvidencePlans(
+  client: OpenAI,
+  model: string,
+  chapterTitle: string,
+  plan: ChapterKnowledgePoint[],
+  sources: DigestSource[],
+  sourceMap: Map<string, string>,
+): Promise<DigestEvidencePlan[]> {
+  const plannedSourceText = sources.map((source) => `[${source.id}] ${source.text}`).join('\n')
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const response = await client.chat.completions.create({
+      model,
+      messages: [
+        {
+          role: 'system',
+          content: `你是阅读产品的证据编辑。此阶段绝对不要出题，只为每个核心知识点锁定一个完整答案证据。
+要求：
+1. 每个知识点最多选择一个 source_id；该片段必须单独、完整地支持一个值得追问的机制、原因、边界、条件或代价。
+2. expected_answer 只能复述该片段明确表达的内容，不得补充外部知识，不得把多个独立问题揉在一起。
+3. 如果任何单一片段都不能完整支持该知识点，就省略它，禁止勉强选择或拼接多段。
+4. source_id 必须来自该知识点的 source_ids。
+只输出 JSON：{"evidence":[{"concept_index":0,"source_id":"S0","expected_answer":"仅由证据支持的完整答案"}]}`,
+        },
+        {
+          role: 'user',
+          content: `章节：${chapterTitle}\n核心知识策划：${JSON.stringify(plan)}\n候选完整段落：\n${plannedSourceText}`,
+        },
+      ],
+      temperature: attempt === 0 ? 0.1 : 0.25,
+      max_tokens: 1500,
+    })
+    try {
+      const parsed = parseJsonFromResponse<unknown>(response.choices[0]?.message?.content || '')
+      const normalized = normalizeEvidencePlans(parsed, plan, sourceMap)
+      if (normalized.length >= 3) return normalized
+    } catch { /* retry evidence selection */ }
+  }
+  return []
+}
+
+function findUniqueAnswerAnchor(evidenceText: string, chapterContent: string): string {
+  const characters = Array.from(evidenceText)
+  const windowSize = Math.min(64, characters.length)
+  const offsets = [0, 0.2, 0.4, 0.6, 0.8, 1]
+  for (const ratio of offsets) {
+    const start = Math.max(0, Math.round((characters.length - windowSize) * ratio))
+    const candidate = characters.slice(start, start + windowSize).join('').trim()
+    if (Array.from(candidate).length < 15) continue
+    if (chapterContent.indexOf(candidate) === chapterContent.lastIndexOf(candidate)) return candidate
+  }
+  return characters.slice(0, Math.min(64, characters.length)).join('').trim()
+}
+
+function normalizeGroundedCards(
+  raw: unknown,
+  evidencePlans: DigestEvidencePlan[],
+  chapterContent: string,
+): GroundedGeneratedDigest[] {
+  if (!raw || typeof raw !== 'object') return []
+  const items = (raw as { cards?: unknown[] }).cards
+  if (!Array.isArray(items)) return []
+  const cards: GroundedGeneratedDigest[] = []
+  for (const item of items) {
+    if (!item || typeof item !== 'object') continue
+    const value = item as Record<string, unknown>
+    const evidenceIndex = Number(value.evidence_index ?? value.evidenceIndex)
+    const evidence = evidencePlans[evidenceIndex]
+    if (!evidence) continue
+    const summary = typeof value.summary === 'string' ? value.summary.trim() : ''
+    const question = typeof value.question === 'string' ? value.question.trim() : ''
+    const title = evidence.name
+    const rawKeyTerms = value.key_terms ?? value.keyTerms
+    const keyTerms = Array.isArray(rawKeyTerms)
+      ? rawKeyTerms.filter((term): term is string => typeof term === 'string').map((term) => term.trim()).filter(Boolean).slice(0, 5)
+      : []
+    const summaryLength = Array.from(summary.replace(/\s+/g, '')).length
+    const questionLength = Array.from(question).length
+    const questionMarks = (question.match(/[？?]/g) || []).length
+    const looksCompound = /(?:以及|同时|并且|又).{0,20}(?:为什么|如何|什么影响|什么代价)/.test(question)
+    if (!title || !summary || !question || summaryLength > 160 || questionLength > 120) continue
+    if (questionMarks > 1 || looksCompound || !chapterContent.includes(evidence.evidenceText)) continue
+    const answerAnchor = findUniqueAnswerAnchor(evidence.evidenceText, chapterContent)
+    if (Array.from(answerAnchor).length < 15 || !chapterContent.includes(answerAnchor)) continue
+    cards.push({
+      title,
+      summary,
+      keyTerms,
+      question,
+      answerAnchor,
+      evidenceText: evidence.evidenceText,
+      expectedAnswer: evidence.expectedAnswer,
+      qualityVersion: 2,
+    })
+  }
+  return cards.filter((card, index, all) =>
+    all.findIndex((item) => item.title === card.title || item.question === card.question) === index
+  )
+}
+
+interface DigestJudgeResult {
+  card_index?: number
+  evidence_complete?: boolean
+  question_grounded?: boolean
+  expected_answer_supported?: boolean
+  atomic_question?: boolean
+  summary_answerable?: boolean
+  reason?: string
+}
+
+async function judgeGroundedCards(
+  client: OpenAI,
+  model: string,
+  cards: GroundedGeneratedDigest[],
+): Promise<{ passed: GroundedGeneratedDigest[]; reasons: string[] }> {
+  const response = await client.chat.completions.create({
+    model,
+    messages: [
+      {
+        role: 'system',
+        content: `你是独立的证据覆盖裁判。逐张严格检查：
+1. evidence_complete：只读 evidence，能否完整回答 question 的每个要求。
+2. question_grounded：question 是否没有引入 evidence 未出现的概念、变量或影响。
+3. expected_answer_supported：expected_answer 的每个断言是否都由 evidence 支持。
+4. atomic_question：question 是否只问一个核心机制，而不是用“以及/同时/又”拼接多个任务。
+5. summary_answerable：仅凭 summary 是否已经能回答 question；能则为 true，卡片不合格。
+只有前四项全为 true 且 summary_answerable 为 false 才合格。只输出 JSON：
+{"results":[{"card_index":0,"evidence_complete":true,"question_grounded":true,"expected_answer_supported":true,"atomic_question":true,"summary_answerable":false,"reason":"判断理由"}]}`,
+      },
+      {
+        role: 'user',
+        content: JSON.stringify(cards.map((card, cardIndex) => ({
+          card_index: cardIndex,
+          summary: card.summary,
+          question: card.question,
+          expected_answer: card.expectedAnswer,
+          evidence: card.evidenceText,
+        }))),
+      },
+    ],
+    temperature: 0,
+    max_tokens: 1200,
+  })
+  const judged = parseJsonFromResponse<{ results?: DigestJudgeResult[] }>(response.choices[0]?.message?.content || '')
+  if (!Array.isArray(judged.results)) return { passed: [], reasons: ['裁判未返回完整结果'] }
+  const passed: GroundedGeneratedDigest[] = []
+  const reasons: string[] = []
+  cards.forEach((card, index) => {
+    const verdict = judged.results?.find((result) => Number(result.card_index) === index)
+    const valid = verdict?.evidence_complete === true
+      && verdict.question_grounded === true
+      && verdict.expected_answer_supported === true
+      && verdict.atomic_question === true
+      && verdict.summary_answerable === false
+    if (valid) passed.push(card)
+    else reasons.push(`${card.title}：${verdict?.reason || '证据覆盖校验未通过'}`)
+  })
+  return { passed, reasons }
+}
+
+export async function generateChapterDigests(req: GenerateDigestRequest): Promise<GroundedGeneratedDigest[]> {
   const client = await createClient()
   const model = await getModel()
   const sources = buildDigestSources(req.chapterContent)
-  if (sources.length < 3) return []
+  if (sources.length < 3) throw new Error('本章缺少足够的完整证据段落')
   const sourceMap = new Map(sources.map((source) => [source.id, source.text]))
   const sourceText = sources.map((source) => `[${source.id}] ${source.text}`).join('\n')
 
-  let plan: ChapterKnowledgePoint[] = []
-  try {
-    plan = await createChapterKnowledgePlan(client, model, req.chapterTitle, sourceText, sourceMap)
-  } catch {
-    return generateChapterDigestsLegacy(req)
-  }
-  if (plan.length < 3) return generateChapterDigestsLegacy(req)
+  const plan = await createChapterKnowledgePlan(client, model, req.chapterTitle, sourceText, sourceMap)
+  if (plan.length < 3) throw new Error('无法从本章建立至少 3 个有原文依据的核心知识点')
 
-  const targetCount = plan.length
   const plannedSources = selectSourcesForPlan(plan, sources)
-  const plannedSourceText = plannedSources.map((source) => `[${source.id}] ${source.text}`).join('\n')
-  const accepted: GeneratedDigest[] = []
-  const fallback: GeneratedDigest[] = []
-  let retryReason = ''
+  const evidencePlans = await createEvidencePlans(client, model, req.chapterTitle, plan, plannedSources, sourceMap)
+  if (evidencePlans.length < 3) throw new Error('本章只有少量问题能由单一原文段落完整回答')
 
-  for (let attempt = 0; attempt < 3 && accepted.length < targetCount; attempt += 1) {
-    const remainingPlan = plan.filter((concept) =>
-      !accepted.some((card) => card.title === concept.name)
+  const accepted: GroundedGeneratedDigest[] = []
+  let retryReason = ''
+  for (let attempt = 0; attempt < 3 && accepted.length < evidencePlans.length; attempt += 1) {
+    const remaining = evidencePlans.filter((evidence) =>
+      !accepted.some((card) => card.title === evidence.name)
     )
     const response = await client.chat.completions.create({
       model,
       messages: [
         {
           role: 'system',
-          content: `你是阅读 App 的核心知识卡编辑。知识策划已完成，请严格根据策划生成卡片。
+          content: `你是阅读 App 的知识卡编辑。证据和标准答案已经锁定，只能从它们反推问题。
 要求：
-1. 每个策划知识点生成且只生成一张卡，保持策划顺序；标题优先使用策划名称，不得换成章节名或泛泛标题。
-2. summary 用 2-4 句、120 字以内说清“它是什么、核心结论是什么、在本章中有什么作用”，不写铺垫和案例细节。
-3. summary 只给结论（what），不得泄露问题所问的原因、机制、代价、边界或成立条件。
-4. question 必须追问该知识点最关键的 why：为什么成立、如何运作、边界在哪里、代价是什么。禁止“什么是……”式复述题，且不能仅凭 summary 回答。
-5. source_id 必须使用候选原文已有编号，并选择能直接回答 question 的片段。
-6. 每张卡独立成立，不得引用“上一张”“前面”等其他卡片。
-只输出 JSON：{"cards":[{"title":"策划知识点名称","summary":"结论","key_terms":["术语"],"question":"关键追问","source_id":"S0"}]}`,
+1. 每条 evidence 生成一张卡，evidence_index 必须保持不变。
+2. summary 用 2-4 句、120 字以内陈述结论和作用，但不能泄露 expected_answer 中的机制、原因、边界或代价。
+3. question 必须能被 evidence 和 expected_answer 单独、完整回答，不得引入其中未出现的术语、变量、后果或外部知识。
+4. 每题只允许一个问号和一个核心追问。禁止“以及、同时、又、分别”等综合题写法；若答案包含多点，应缩小到最关键的一点。
+5. 不得生成“什么是”式复述题，不得引用上一张卡。
+只输出 JSON：{"cards":[{"evidence_index":0,"title":"知识点标题","summary":"结论","key_terms":["术语"],"question":"单一机制追问？"}]}`,
         },
         {
           role: 'user',
-          content: `章节：${req.chapterTitle}
-本轮知识策划（必须逐项制卡）：${JSON.stringify(remainingPlan)}
-${retryReason ? `上轮问题：${retryReason}\n` : ''}
-候选原文片段：\n${plannedSourceText}`,
+          content: `章节：${req.chapterTitle}\n锁定证据：${JSON.stringify(remaining.map((item, evidenceIndex) => ({
+            evidence_index: evidenceIndex,
+            title: item.name,
+            evidence: item.evidenceText,
+            expected_answer: item.expectedAnswer,
+          })))}\n${retryReason ? `上轮裁判拒绝原因：${retryReason}` : ''}`,
         },
       ],
-      temperature: attempt === 0 ? 0.35 : 0.55,
+      temperature: attempt === 0 ? 0.25 : 0.45,
       max_tokens: MAX_TOKENS_DIGEST,
     })
 
-    let candidates: GeneratedDigest[] = []
+    let candidates: GroundedGeneratedDigest[] = []
     try {
-      const parsed = parseJsonFromResponse<{ cards?: unknown[] } | unknown[]>(response.choices[0]?.message?.content || '')
-      const rawCards = Array.isArray(parsed) ? parsed : parsed.cards || []
-      candidates = rawCards
-        .map((item) => normalizeGeneratedDigest(item, sourceMap))
-        .filter((item): item is GeneratedDigest => item !== null)
-        .map((digest) => ({
-          ...digest,
-          answerAnchor: resolveExactAnchor(digest.answerAnchor, req.chapterContent),
-        }))
-        .filter((digest) => !locallyValidateDigest(digest, req.chapterContent))
-        .filter((digest, index, items) =>
-          items.findIndex((item) => item.title === digest.title || item.question === digest.question) === index
-          && !accepted.some((item) => item.title === digest.title || item.question === digest.question)
-        )
+      const parsed = parseJsonFromResponse<unknown>(response.choices[0]?.message?.content || '')
+      candidates = normalizeGroundedCards(parsed, remaining, req.chapterContent)
+        .filter((candidate) => !accepted.some((card) => card.title === candidate.title || card.question === candidate.question))
     } catch {
-      retryReason = '返回内容不是合法 JSON'
+      retryReason = '卡片返回格式不完整'
       continue
     }
     if (candidates.length === 0) {
-      retryReason = '没有生成字段完整、锚点有效且互不重复的卡片'
+      retryReason = '没有生成通过本地单问题与原文匹配校验的卡片'
       continue
     }
-    fallback.push(...candidates.filter((candidate) =>
-      !fallback.some((item) => item.title === candidate.title || item.question === candidate.question)
-    ))
 
     try {
-      const judge = await client.chat.completions.create({
-        model,
-        messages: [
-          {
-            role: 'system',
-            content: '逐张检查：仅凭 summary 是否足以回答 question。若摘要已经包含问题要求的原因、机制、代价、边界或条件，answerable 为 true。只输出 JSON：{"results":[{"card_index":0,"answerable":false,"reason":"原因"}]}。',
-          },
-          {
-            role: 'user',
-            content: JSON.stringify(candidates.map((card, cardIndex) => ({
-              card_index: cardIndex,
-              summary: card.summary,
-              question: card.question,
-            }))),
-          },
-        ],
-        temperature: 0,
-        max_tokens: 700,
-      })
-      const judged = parseJsonFromResponse<{
-        results?: { card_index?: number; answerable?: boolean }[]
-      }>(judge.choices[0]?.message?.content || '')
-      const passed = candidates.filter((_, index) =>
-        judged.results?.find((result) => Number(result.card_index) === index)?.answerable !== true
-      )
-      accepted.push(...passed)
-      retryReason = `还缺 ${Math.max(0, targetCount - accepted.length)} 张策划知识卡`
-    } catch {
-      accepted.push(...candidates)
-      retryReason = '质量复核格式异常，已保留通过本地校验的卡片'
+      const judged = await judgeGroundedCards(client, model, candidates)
+      accepted.push(...judged.passed)
+      retryReason = judged.reasons.slice(0, 5).join('；') || '继续生成剩余卡片'
+    } catch (error) {
+      retryReason = error instanceof Error ? error.message : '证据覆盖裁判失败'
     }
   }
 
-  const combined = [
-    ...accepted,
-    ...fallback.filter((candidate) =>
-      !accepted.some((item) => item.title === candidate.title || item.question === candidate.question)
-    ),
-  ].slice(0, targetCount)
-  return combined.length >= 3 ? combined : generateChapterDigestsLegacy(req)
+  if (accepted.length < 3) {
+    throw new Error(`仅有 ${accepted.length} 张卡通过完整证据校验，请重试本章生成`)
+  }
+  const orderByTitle = new Map(evidencePlans.map((evidence, index) => [evidence.name, index]))
+  return accepted
+    .sort((left, right) => (orderByTitle.get(left.title) ?? 99) - (orderByTitle.get(right.title) ?? 99))
+    .slice(0, 5)
 }
 
 export async function explainImageStream(req: ImageExplainRequest): Promise<void> {
