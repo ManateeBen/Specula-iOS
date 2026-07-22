@@ -112,18 +112,23 @@ export interface CodeDryRunStep {
 
 export interface CodeExplanationResult {
   mode: CodeExplanationMode
+  normalizedCode?: string
   overview?: {
     responsibility: string
     chapterRelation: string
+    chapterRelationEvidence: string
   }
   coreRanges: CodeLineRange[]
   foldRanges: CodeLineRange[]
   annotations: CodeLineAnnotation[]
   dryRun?: {
+    available: boolean
+    unavailableReason: string
     assumptions: string[]
     steps: CodeDryRunStep[]
     result: string
     chapterConnection: string
+    verified: boolean
   }
   fallbackText?: string
   fallback: boolean

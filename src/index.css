@@ -1977,6 +1977,7 @@
 .code-explorer-code { background: #f7f7f5; border-right: 1.5px solid var(--records-ink, #141414); display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .code-explorer-codebar { align-items: center; background: #e8e8e4; border-bottom: 1px solid #c8c8c2; display: flex; font-size: 9px; justify-content: space-between; min-height: 31px; padding: 0 14px; text-transform: uppercase; }
 .code-explorer-codebar small { color: var(--records-cobalt, #2743d6); }
+.code-explorer-codebar > div { display: flex; gap: 10px; }
 .code-explorer-lines { flex: 1; overflow: auto; overscroll-behavior: contain; padding: 10px 0 24px; }
 .code-explorer-line { display: grid; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; grid-template-columns: 42px minmax(0, 1fr) 30px; line-height: 1.65; min-height: 21px; padding: 1px 9px 1px 0; }
 .code-explorer-line > span { color: #9a9892; padding-right: 10px; text-align: right; user-select: none; }
@@ -2008,6 +2009,13 @@
 .code-explorer-note-section p,
 .code-explorer-note-section li { font-family: 'Noto Serif SC', 'Songti SC', serif; font-size: 14px; line-height: 1.85; }
 .code-explorer-note-section ul { padding-left: 20px; }
+.code-explorer-note-section blockquote { border-left: 2px solid var(--records-cobalt, #2743d6); color: #696761; font-family: 'Noto Serif SC', 'Songti SC', serif; font-size: 11px; line-height: 1.65; margin: 12px 0 0; padding-left: 10px; }
+.code-explorer-verified { color: var(--records-cobalt, #2743d6); display: block; font-family: 'IBM Plex Mono', monospace; font-size: 9px; margin-top: 10px; }
+.code-explorer-unavailable { border: 1.5px solid #141414; padding: 16px; }
+.code-explorer-unavailable > span { color: var(--records-cobalt, #2743d6); font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 0.08em; }
+.code-explorer-unavailable h3 { font-size: 16px; margin: 9px 0; }
+.code-explorer-unavailable p { font-family: 'Noto Serif SC', 'Songti SC', serif; font-size: 13px; line-height: 1.75; }
+.code-explorer-unavailable small { color: #696761; line-height: 1.6; }
 .code-explorer-note-section.is-conclusion { border: 1.5px solid #141414; margin-top: 15px; padding: 13px; }
 .code-explorer-range-list { list-style: none; margin: 16px 0; padding: 0; }
 .code-explorer-range-list li { border-bottom: 1px solid #c8c8c2; display: grid; font-size: 12px; gap: 10px; grid-template-columns: 72px 1fr; line-height: 1.6; padding: 10px 0; }
@@ -2029,14 +2037,19 @@
 @media (max-width: 767px) {
   .code-explorer-header { padding-left: 15px; padding-right: 15px; }
   .code-explorer-header h2 { font-size: 18px; }
-  .code-explorer-tabs button { flex: 0 0 auto; min-height: 46px; padding: 0 14px; }
+  .code-explorer-tabs button { flex: 1 0 88px; font-size: 11px; gap: 4px; min-height: 46px; padding: 0 6px; }
   .code-explorer-body { display: flex; flex-direction: column; }
-  .code-explorer-code { border-bottom: 1.5px solid #141414; border-right: 0; flex: 0 1 auto; max-height: 48%; min-height: 210px; }
+  .code-explorer-code { border-bottom: 1.5px solid #141414; border-right: 0; flex: 0 1 auto; height: min(42dvh, var(--code-panel-height, 280px)); max-height: 42dvh; min-height: 132px; }
   .code-explorer-code .code-explorer-lines { flex: 0 1 auto; min-height: 0; }
   .code-explorer-notes { flex: 1 1 auto; padding: 14px 16px; }
   .code-explorer-line { font-size: 11px; grid-template-columns: 36px minmax(0, 1fr) 26px; }
   .code-explorer-annotation { margin-left: 36px; }
   .epub-code-explain { min-width: 108px; }
+}
+
+@media (max-width: 360px) {
+  .code-explorer-tabs button { flex: 1 1 25%; font-size: 10px; min-width: 0; padding: 0 3px; }
+  .code-explorer-tabs button svg { height: 14px; width: 14px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

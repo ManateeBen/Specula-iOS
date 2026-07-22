@@ -221,6 +221,28 @@ function sanitizeRenderedChapter(el: HTMLElement): void {
   el.querySelectorAll('head, style, script, link, meta, title').forEach((node) => node.remove())
 }
 
+function cleanCodeText(value: string): string {
+  return value
+    .replace(/\r\n?/g, '\n')
+    .replace(/[ \t]+$/gm, '')
+    .replace(/^\n+|\n+$/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+}
+
+function extractCodeText(pre: HTMLElement): string {
+  const clone = pre.cloneNode(true) as HTMLElement
+  clone.querySelectorAll('br').forEach((node) => node.replaceWith(document.createTextNode('\n')))
+  clone.querySelectorAll('li, p, div').forEach((node) => {
+    if (node.nextSibling) node.append(document.createTextNode('\n'))
+  })
+  const candidates = [cleanCodeText(pre.innerText || ''), cleanCodeText(clone.textContent || ''), cleanCodeText(pre.textContent || '')]
+    .filter(Boolean)
+  return candidates.sort((left, right) => {
+    const lineDelta = right.split('\n').length - left.split('\n').length
+    return lineDelta || right.length - left.length
+  })[0] || ''
+}
+
 function prepareCodeBlocks(el: HTMLElement): void {
   for (const pre of Array.from(el.querySelectorAll('pre'))) {
     if (pre.closest('.epub-code-shell')) continue
@@ -229,6 +251,9 @@ function prepareCodeBlocks(el: HTMLElement): void {
 
     const shell = document.createElement('div')
     shell.className = 'epub-code-shell'
+    const code = extractCodeText(pre)
+    shell.dataset.codeSource = code.slice(0, 16000)
+    shell.dataset.codeLineCount = String(code ? code.split('\n').length : 0)
     const button = document.createElement('button')
     button.type = 'button'
     button.className = 'epub-code-explain'
@@ -1501,7 +1526,7 @@ export default function EpubReader({
       const shell = codeButton.closest('.epub-code-shell')
       const pre = shell?.querySelector('pre') as HTMLElement | null
       if (pre && onCodeSelect) {
-        const fullCode = (pre.textContent || '').replace(/\r\n?/g, '\n').replace(/^\n+|\n+$/g, '')
+        const fullCode = cleanCodeText((shell as HTMLElement | null)?.dataset.codeSource || extractCodeText(pre))
         const originalLines = fullCode.split('\n')
         let code = originalLines.slice(0, 200).join('\n')
         if (code.length > 16000) code = code.slice(0, 16000)

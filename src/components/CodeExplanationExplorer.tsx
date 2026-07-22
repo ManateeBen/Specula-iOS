@@ -1,5 +1,5 @@
-import { Fragment, useEffect, useMemo, useState } from 'react'
-import type { ReactNode } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import {
   ChevronLeft,
   ChevronRight,
@@ -58,20 +58,25 @@ export default function CodeExplanationExplorer({
   const tone = useSettingsStore((state) => state.explanationTone)
   const [tab, setTab] = useState<ExplorerTab>('overview')
   const [results, setResults] = useState<Partial<Record<CodeExplanationMode, CodeExplanationResult>>>({})
-  const [loadingMode, setLoadingMode] = useState<CodeExplanationMode | null>('structure')
-  const [error, setError] = useState('')
+  const [loadingModes, setLoadingModes] = useState<Set<CodeExplanationMode>>(() => new Set(['structure']))
+  const [errors, setErrors] = useState<Partial<Record<CodeExplanationMode, string>>>({})
   const [expandedFolds, setExpandedFolds] = useState<Set<number>>(new Set())
   const [dryStep, setDryStep] = useState(0)
-  const lines = useMemo(() => selection.code.replace(/\r\n?/g, '\n').split('\n'), [selection.code])
+  const attemptedModesRef = useRef(new Set<CodeExplanationMode>())
+  const structure = results.structure
+  const displayCode = structure?.normalizedCode || selection.code
+  const lines = useMemo(() => displayCode.replace(/\r\n?/g, '\n').split('\n'), [displayCode])
+  const wasReflowed = Boolean(structure?.normalizedCode && structure.normalizedCode !== selection.code)
 
-  const requestMode = async (mode: CodeExplanationMode) => {
-    setLoadingMode(mode)
-    setError('')
+  const requestMode = async (mode: CodeExplanationMode, code = selection.code) => {
+    attemptedModesRef.current.add(mode)
+    setLoadingModes((current) => new Set(current).add(mode))
+    setErrors((current) => ({ ...current, [mode]: '' }))
     try {
       const result = await window.specula.ai.explainCode({
         bookId,
         chapterId,
-        code: selection.code,
+        code,
         language: selection.language,
         contextBefore: selection.contextBefore,
         contextAfter: selection.contextAfter,
@@ -82,9 +87,13 @@ export default function CodeExplanationExplorer({
       })
       setResults((current) => ({ ...current, [mode]: result }))
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : '代码解读失败，请稍后重试')
+      setErrors((current) => ({ ...current, [mode]: reason instanceof Error ? reason.message : '代码解读失败，请稍后重试' }))
     } finally {
-      setLoadingMode((current) => current === mode ? null : current)
+      setLoadingModes((current) => {
+        const next = new Set(current)
+        next.delete(mode)
+        return next
+      })
     }
   }
 
@@ -101,19 +110,30 @@ export default function CodeExplanationExplorer({
 
   const switchTab = (next: ExplorerTab) => {
     setTab(next)
-    setError('')
+    setDryStep(0)
     const mode = modeForTab(next)
-    if (!results[mode] && loadingMode !== mode) void requestMode(mode)
+    if (mode === 'structure' && !results.structure && !loadingModes.has('structure') && !attemptedModesRef.current.has(mode)) void requestMode('structure')
+    else if (mode !== 'structure' && structure && !results[mode] && !loadingModes.has(mode) && !attemptedModesRef.current.has(mode)) {
+      void requestMode(mode, structure.normalizedCode || selection.code)
+    }
   }
 
-  const structure = results.structure
   const annotationResult = results.annotations
   const dryRunResult = results.dry_run
   const activeMode = modeForTab(tab)
   const activeResult = results[activeMode]
+  const activeError = errors[activeMode] || ''
   const dryRun = dryRunResult?.dryRun
   const safeDryStep = dryRun?.steps.length ? Math.min(dryStep, dryRun.steps.length - 1) : 0
   const currentDryStep = dryRun?.steps[safeDryStep]
+
+  useEffect(() => {
+    const mode = modeForTab(tab)
+    if (mode === 'structure' || !structure || results[mode] || loadingModes.has(mode) || attemptedModesRef.current.has(mode)) return
+    void requestMode(mode, structure.normalizedCode || selection.code)
+    // requestMode is intentionally driven by the active tab after structure is ready.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, structure, loadingModes])
 
   const toggleFold = (start: number) => {
     setExpandedFolds((current) => {
@@ -189,7 +209,7 @@ export default function CodeExplanationExplorer({
         <div>
           <span>SPECULA · CODE NOTES</span>
           <h2>AI 代码解读</h2>
-          <p>{selection.language || 'CODE'} · {selection.originalLineCount} LINES</p>
+          <p>{selection.language || 'CODE'} · {lines.length} LOGIC LINES{wasReflowed ? ` · EPUB ${selection.originalLineCount}→${lines.length}` : ''}</p>
         </div>
         <button type="button" onClick={onClose} aria-label="关闭代码解读"><X aria-hidden /></button>
       </header>
@@ -214,23 +234,26 @@ export default function CodeExplanationExplorer({
         <div className="code-explorer-notice">代码超过分析上限，本次只解读前 {lines.length} 行，原文保持不变。</div>
       )}
 
-      <div className="code-explorer-body">
+      <div className="code-explorer-body" style={{ '--code-panel-height': `${Math.min(lines.length, 14) * 25 + 52}px` } as CSSProperties}>
         <div className="code-explorer-code" aria-label="带行号的源代码">
           <div className="code-explorer-codebar">
             <span>{selection.language || 'plain text'}</span>
-            {structure?.fromCache && <small>CACHED</small>}
+            <div>{wasReflowed && <small>AI REFLOW · CHAR VERIFIED</small>}{structure?.fromCache && <small>CACHED</small>}</div>
           </div>
           <div className="code-explorer-lines">{renderCode(tab)}</div>
         </div>
 
         <div className="code-explorer-notes" aria-live="polite">
-          {loadingMode === activeMode && !activeResult && (
-            <div className="code-explorer-loading"><Loader2 aria-hidden /> 正在沿着代码主线阅读</div>
+          {((loadingModes.has(activeMode) && !activeResult) || (!structure && loadingModes.has('structure'))) && (
+            <div className="code-explorer-loading"><Loader2 aria-hidden /> {activeMode === 'structure' ? '正在校准代码行与阅读主线' : '先校准代码行，再生成这一视图'}</div>
           )}
-          {error && (
+          {activeError && (
             <div className="code-explorer-error">
-              <p>{error}</p>
-              <button type="button" onClick={() => void requestMode(activeMode)}>重试</button>
+              <p>{activeError}</p>
+              <button type="button" onClick={() => {
+                attemptedModesRef.current.delete(activeMode)
+                void requestMode(activeMode, activeMode === 'structure' ? selection.code : structure?.normalizedCode || selection.code)
+              }}>重试</button>
             </div>
           )}
           {activeResult?.fallback && (
@@ -249,6 +272,7 @@ export default function CodeExplanationExplorer({
               <section className="code-explorer-note-section">
                 <span>IN THIS TRACK · 和本章的关系</span>
                 <p>{structure.overview?.chapterRelation || '附近正文没有提供足够线索。'}</p>
+                {structure.overview?.chapterRelationEvidence && <blockquote>正文依据：“{structure.overview.chapterRelationEvidence}”</blockquote>}
               </section>
             </>
           )}
@@ -279,10 +303,19 @@ export default function CodeExplanationExplorer({
 
           {tab === 'dry_run' && dryRun && !dryRunResult?.fallback && (
             <>
-              <section className="code-explorer-note-section">
-                <span>ASSUMED INPUT · 假设输入</span>
-                <ul>{dryRun.assumptions.map((item, index) => <li key={index}>{item}</li>)}</ul>
-              </section>
+              {!dryRun.available ? (
+                <section className="code-explorer-unavailable">
+                  <span>NO SAFE RUN · 不硬编</span>
+                  <h3>这段代码暂时不能可靠带值推演</h3>
+                  <p>{dryRun.unavailableReason}</p>
+                  <small>缺少真实输入时，停在这里比编造一个看似具体的结果更有用。</small>
+                </section>
+              ) : <>
+                <section className="code-explorer-note-section">
+                  <span>ASSUMED INPUT · 假设输入</span>
+                  <ul>{dryRun.assumptions.map((item, index) => <li key={index}>{item}</li>)}</ul>
+                  {dryRun.verified && <small className="code-explorer-verified">SOURCE-AUDITED · 分支与结果已独立复核</small>}
+                </section>
               {currentDryStep && (
                 <section className="code-explorer-step" aria-label="dry-run-current-step">
                   <header><span>STEP {safeDryStep + 1}/{dryRun.steps.length}</span><b>L{currentDryStep.line}</b></header>
@@ -307,6 +340,7 @@ export default function CodeExplanationExplorer({
                   {dryRun.chapterConnection && <p>{dryRun.chapterConnection}</p>}
                 </section>
               )}
+              </>}
             </>
           )}
         </div>
@@ -314,7 +348,7 @@ export default function CodeExplanationExplorer({
 
       <footer className="code-explorer-footer">
         <Sparkles aria-hidden />
-        <span>解释基于本段代码与附近正文 · dry run 是假想推演，不是真实执行</span>
+        <span>解释只认本段代码与附近正文 · dry run 未通过源码审计就不展示</span>
       </footer>
     </section>
   )
